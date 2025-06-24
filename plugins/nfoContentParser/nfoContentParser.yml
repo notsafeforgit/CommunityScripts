@@ -1,0 +1,26 @@
+name: nfoContentParser
+description: Fills scene, image, and gallery data from NFO or filename pattern
+url: https://github.com/stashapp/CommunityScripts/tree/main/plugins/nfoContentParser
+version: 2.0.0
+exec:
+  - python
+  - "{pluginDir}/nfoContentParser.py"
+interface: raw
+hooks:
+  - name: hook_nfoSceneParser
+    description: Fills scene data on creation
+    triggeredBy:
+      - Scene.Create.Post
+  - name: hook_nfoImageParser
+    description: Fills image data on creation
+    triggeredBy:
+      - Image.Create.Post
+  - name: hook_nfoGalleryParser
+    description: Fills gallery data on creation
+    triggeredBy:
+      - Gallery.Create.Post
+tasks:
+  - name: "Reload tagged content"
+    description: Reload all scenes, images, and galleries that have specific "marker" tag (see plugin's config.py)
+    defaultArgs:
+      mode: reload
