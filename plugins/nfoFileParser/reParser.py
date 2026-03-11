@@ -13,7 +13,7 @@ class RegExParser(AbstractParser):
         self._scene_path = scene_path
         self._re_config_file = self._find_in_parents(
             os.path.dirname(scene_path),
-            "nfoSceneParser.json")
+            "nfoFileParser.json")
         self._groups = {}
         if self._re_config_file:
             try:

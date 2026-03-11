@@ -43,7 +43,7 @@ nfoFileParser typically processes everything during scan. If you want to reload 
 It works in three steps: configure, select & run:
 - Configure: edit `reload_tags` in the plugin's `config.py` file. Set the name to an existing tag in your stash. It is used as the 'marker" tag by the plugin to identify which scenes to reload.
 - Select: add the configured tag to your scenes to "mark" them.
-- Run: execute the "reload" task: stash's settings -> "Tasks" -> Scroll down to "plugin tasks" / nfoSceneParser (at the bottom) -> "Reload tagged scenes" button
+- Run: execute the "reload" task: stash's settings -> "Tasks" -> Scroll down to "plugin tasks" / nfoFileParser (at the bottom) -> "Reload tagged scenes" button
 
 A reload essentially merges the new file data with the existing scene data, giving priority to the nfo/regex content. More specifically:
 - For single-value fields, overrides what is already set if another content is found 
@@ -107,7 +107,7 @@ example for `BestSceneEver.nfo`:
 
 ## url support
 
-The nfo spec does not officially support `<url>` tags, but given the importance for stash, it is supported by nfoSceneParser as an nfo extension and will be correctly recognized and updated to your scenes and movies.
+The nfo spec does not officially support `<url>` tags, but given the importance for stash, it is supported by nfoFileParser as an nfo extension and will be correctly recognized and updated to your scenes and movies.
 
 ## Mapping between stash data and nfo fields
 
@@ -141,15 +141,15 @@ patterns use the "regular expression" standard to match patterns (regex).
 
 ## Regex configuration - not your typical plugin
 
-A consistent and uniform naming convention across a whole media library is extremely unlikely. Therefore, nfoSceneParser supports not one, but multiple `nfoSceneParser.json` regex config files. They are placed alongside your media files, directly into the library. 
+A consistent and uniform naming convention across a whole media library is extremely unlikely. Therefore, nfoFileParser supports not one, but multiple `nfoFileParser.json` regex config files. They are placed alongside your media files, directly into the library.
 
 A configuration file applies to all files and subdirectories below it. 
 
 Config files can be nested inside the library's directories tree. In this case, the deepest and most specific config is always used. 
 
-`nfoSceneParser.json` configs are searched and loaded when the plug-in is executed. They can be added, modified or removed while stash is running, without the need to "reload" the plugins.
+`nfoFileParser.json` configs are searched and loaded when the plug-in is executed. They can be added, modified or removed while stash is running, without the need to "reload" the plugins.
 
-## File structure `nfoSceneParser.json` 
+## File structure `nfoFileParser.json`
 
 Configuration files consist of one regex and some attributes.  
 
@@ -159,20 +159,20 @@ Configuration files consist of one regex and some attributes.
 | splitter      | false    | Used to further split the matched "performers" or 'tags" text into an array of strings (the most frequent use case being a list of actors or tags). For instance, if performers matches to `"Megan Rain, London Keyes"`, a splitter of `", "` will separate the two performers from the matched string  |
 | scope         | false    | possible values are "path" or "filename". Whether the regex is applied to the scene's whole path or just the filename. Defaults to "path" |
 
-## Example `nfoSceneParser.json` 
+## Example `nfoFileParser.json`
 
 Let's assume the following directory and file structure:
 
 `/movies/movie series/Movie Name 17/Studio name - first1 last1, first2 last2 - Scene title - 2017-12-31.mp4`
 
-A common naming convention is used for all files under "movie series" directory => the  `nfoSceneParser.json` file is placed in `/movies/movie series`.
+A common naming convention is used for all files under "movie series" directory => the  `nfoFileParser.json` file is placed in `/movies/movie series`.
 
 We want to identify the following patterns:
 - The deepest folder is the `movie`
 - The file name has different sections, all separated by the same `' - '` delimiter. We can therefore use this to delimit and match the `studio`, the `performers` and the scene's `title`.
 - The `date` is matched automatically. There is nothing to configure for that.
 
-`nfoSceneParser.json` (remember: to be placed in your library)
+`nfoFileParser.json` (remember: to be placed in your library)
 ```json
 {
   "regex": "^.*[/\\\\](?P<movie>.*?)[/\\](?P<studio>.*?) - (?P<performers>.*?) - (?P<title>.*?)[-]+.*\\.mp4$",

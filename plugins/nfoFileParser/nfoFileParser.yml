@@ -1,13 +1,13 @@
-name: nfoParserPlugin
+name: nfoFileParser
 description: Fills scene and image data from NFO or filename pattern
-version: 1.5.0
+version: 1.6.0
 url: https://discourse.stashapp.cc/t/nfosceneparser/1385
 exec:
   - python
-  - "{pluginDir}/nfoParserPlugin.py"
+  - "{pluginDir}/nfoFileParser.py"
 interface: raw
 hooks:
-  - name: hook_nfoParserPlugin
+  - name: hook_nfoFileParser
     description: Fills item data on creation
     triggeredBy:
       - Scene.Create.Post

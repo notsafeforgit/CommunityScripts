@@ -7,12 +7,12 @@ import log
 import re
 import unicodedata
 from abstractParser import AbstractParser
-from nfoParser import NfoParser
+from nfoFileParserImpl import NfoFileParserImpl
 from reParser import RegExParser
 from stashInterface import StashInterface
 
 
-class NfoParserPlugin:
+class NfoFileParser:
 
     def __init__(self, stash):
         self._stash: StashInterface = stash
@@ -70,7 +70,7 @@ class NfoParserPlugin:
 
         # Parse folder nfo (used as default)
         # TODO: Manage file path array.
-        folder_nfo_parser = NfoParser(file_path, None, True)
+        folder_nfo_parser = NfoFileParserImpl(file_path, None, True)
         self._folder_data = folder_nfo_parser.parse()
 
         # Parse scene nfo (nfo & regex).
@@ -78,7 +78,7 @@ class NfoParserPlugin:
             self._folder_data or AbstractParser.empty_default
         ])
         re_file_data = re_parser.parse()
-        nfo_parser = NfoParser(file_path, [
+        nfo_parser = NfoFileParserImpl(file_path, [
             self._folder_data or AbstractParser.empty_default,
             re_file_data or AbstractParser.empty_default
         ])
@@ -524,7 +524,7 @@ class NfoParserPlugin:
             return self.__process_reload()
         else:
             raise Exception(
-                f"nfoParserPlugin error: unsupported mode {self._stash.get_mode()}")
+                f"nfoFileParser error: unsupported mode {self._stash.get_mode()}")
 
 
 if __name__ == '__main__':
@@ -538,6 +538,6 @@ if __name__ == '__main__':
     # Start processing: parse file data and update items
     # (+ create missing performer, tag, movie,...)
     stash_interface = StashInterface(fragment)
-    nfoParserPlugin = NfoParserPlugin(stash_interface)
-    nfoParserPlugin.process()
+    nfoFileParser = NfoFileParser(stash_interface)
+    nfoFileParser.process()
     stash_interface.exit_plugin("Successful!")

@@ -8,7 +8,7 @@ import config
 import log
 from abstractParser import AbstractParser
 
-class NfoParser(AbstractParser):
+class NfoFileParserImpl(AbstractParser):
 
     def __init__(self, scene_path, defaults=None, folder_mode=False):
         super().__init__()

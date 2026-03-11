@@ -43,7 +43,7 @@ class StashInterface:
         self._path_rewrite = self._fragment["args"].get("pathRewrite")
         target_type = self._item_type or "scene"
         log.LogDebug(
-            f"Starting nfoParserPlugin for {target_type} {self._target_id}")
+            f"Starting nfoFileParser for {target_type} {self._target_id}")
 
     def get_item_id(self):
         return self._item_id
