@@ -1,7 +1,8 @@
 name: CJ's Card Tweaks.
-description: Provides various tweaks for the Stash Cards.
-version: 1.1
 # requires: CommunityScriptsUILibrary
+description: Provides various tweaks for the Stash cards.
+version: 1.2
+url: https://discourse.stashapp.cc/t/cjs-card-tweaks/1342
 ui:
   requires:
     - CommunityScriptsUILibrary
@@ -23,4 +24,8 @@ settings:
   performerProfileCards:
     displayName: Performer profile cards
     description: "Tweaks performer cards to use a traditional profile design."
+    type: BOOLEAN
+  stashIDIcon:
+    displayName: Stash ID icon
+    description: "Adds a Stash ID icon to the performer cards."
     type: BOOLEAN
