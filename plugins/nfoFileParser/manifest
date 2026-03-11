@@ -1,5 +1,5 @@
-id: nfoSceneParser
-name: nfoSceneParser
+id: nfoFileParser
+name: nfoFileParser
 metadata:
   description: Fills scene data from NFO or filename pattern
 version: 1.5.0-43feb59
@@ -11,8 +11,8 @@ files:
 - config.py
 - stashInterface.py
 - log.py
-- nfoSceneParser.yml
+- nfoFileParser.yml
 - reParser.py
-- nfoSceneParser.py
+- nfoFileParser.py
 - README.md
-- nfoParser.py
+- nfoFileParserImpl.py
