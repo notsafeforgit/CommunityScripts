@@ -405,17 +405,22 @@ class NfoParserPlugin:
                 f"Matched existing movie '{self._file_data['movie']}' with id {matching_id}")
         return movie_id
 
-    def __process_item(self, item_id, item_type):
-        self.__prepare_item(item_id, item_type)
-        if not self._item:
-            log.LogError(f"{item_type.capitalize()} {item_id} not found in stash.")
-            return [None, None]
+    def _get_item_path(self, item_id: str, item_type: str) -> str | None:
+        """
+        Extracts the best usable file path from a scene or image item dictionary.
 
+        Args:
+            item_id: The ID of the item.
+            item_type: The type of the item ('scene' or 'image').
+
+        Returns:
+            The file path as a string, or None if it could not be determined.
+        """
         file_path = None
         if item_type == "scene":
             if not self._item.get("files"):
                 log.LogError(f"Scene {item_id} has no associated files. Nothing to parse.")
-                return [None, None]
+                return None
             file_path = self._item["files"][0]["path"]
         elif item_type == "image":
             visual_files = self._item.get("visual_files") or []
@@ -429,7 +434,25 @@ class NfoParserPlugin:
             elif isinstance(paths, list) and paths:
                 primary_path = paths[0] or {}
                 file_path = file_path or primary_path.get("image") or primary_path.get("path")
+        return file_path
 
+    def __process_item(self, item_id: str, item_type: str) -> list:
+        """
+        Processes a single item (scene or image) by extracting metadata from NFO files or filenames.
+
+        Args:
+            item_id: The ID of the item in Stash.
+            item_type: The type of item ('scene' or 'image').
+
+        Returns:
+            A list containing [file_data, item_data], or [None, None] on error.
+        """
+        self.__prepare_item(item_id, item_type)
+        if not self._item:
+            log.LogError(f"{item_type.capitalize()} {item_id} not found in stash.")
+            return [None, None]
+
+        file_path = self._get_item_path(item_id, item_type)
         if not file_path:
             log.LogError(f"{item_type.capitalize()} {item_id} has no usable path information. Nothing to parse.")
             return [None, None]
@@ -491,19 +514,12 @@ class NfoParserPlugin:
 
     def process(self):
         if self._stash.get_mode() == "normal":
-            hook_type = self._stash.get_hook_type()
-            if hook_type == "image":
-                image_id = self._stash.get_image_id() or self._stash.get_target_id()
-                if not image_id:
-                    log.LogError("Image hook triggered but no image id provided.")
-                    return [None, None]
-                return self.__process_item(image_id, "image")
-            else:
-                scene_id = self._stash.get_scene_id() or self._stash.get_target_id()
-                if not scene_id:
-                    log.LogError("Scene hook triggered but no scene id provided.")
-                    return [None, None]
-                return self.__process_item(scene_id, "scene")
+            item_type = self._stash.get_item_type()
+            item_id = self._stash.get_item_id() or self._stash.get_target_id()
+            if not item_id:
+                log.LogError(f"{item_type.capitalize()} hook triggered but no item id provided.")
+                return [None, None]
+            return self.__process_item(item_id, item_type)
         elif self._stash.get_mode() == "reload":
             return self.__process_reload()
         else:

@@ -15,45 +15,44 @@ class StashInterface:
         self._fragment_server = self._fragment["server_connection"]
         self._plugin_dir = self._fragment_server["PluginDir"]
         hook_ctx = self._fragment["args"].get("hookContext")
-        self._hook_type = None
-        self._scene_id = None
-        self._image_id = None
+        self._item_type = None
+        self._item_id = None
         self._target_id = None
         if hook_ctx:
-            raw_hook_type = (hook_ctx.get("type") or "").lower()
-            if "image" in raw_hook_type:
-                self._hook_type = "image"
-            elif "scene" in raw_hook_type:
-                self._hook_type = "scene"
+            raw_item_type = (hook_ctx.get("type") or "").lower()
+            if "image" in raw_item_type:
+                self._item_type = "image"
+            elif "scene" in raw_item_type:
+                self._item_type = "scene"
             else:
-                self._hook_type = raw_hook_type
+                self._item_type = raw_item_type
             # Accept common variants for IDs in hook context
             self._target_id = hook_ctx.get("id") \
                 or hook_ctx.get("scene_id") \
                 or hook_ctx.get("sceneId") \
                 or hook_ctx.get("image_id") \
                 or hook_ctx.get("imageId")
-            if self._hook_type == "image":
-                self._image_id = self._target_id or hook_ctx.get("image_id") or hook_ctx.get("imageId")
+
+            # Prefer target_id; fallback if explicit type IDs are set
+            if self._item_type == "image":
+                self._item_id = self._target_id or hook_ctx.get("image_id") or hook_ctx.get("imageId")
             else:
                 # Default to scenes for backward compatibility / unknown types.
-                self._scene_id = self._target_id or hook_ctx.get("scene_id") or hook_ctx.get("sceneId")
+                self._item_id = self._target_id or hook_ctx.get("scene_id") or hook_ctx.get("sceneId")
+
         self._path_rewrite = self._fragment["args"].get("pathRewrite")
-        target_type = self._hook_type or "scene"
+        target_type = self._item_type or "scene"
         log.LogDebug(
             f"Starting nfoParserPlugin for {target_type} {self._target_id}")
 
-    def get_scene_id(self):
-        return self._scene_id
-
-    def get_image_id(self):
-        return self._image_id
+    def get_item_id(self):
+        return self._item_id
 
     def get_target_id(self):
         return self._target_id
 
-    def get_hook_type(self):
-        return self._hook_type or "scene"
+    def get_item_type(self):
+        return self._item_type or "scene"
 
     def get_mode(self):
         return self._mode
