@@ -7,17 +7,18 @@ import log
 import re
 import unicodedata
 from abstractParser import AbstractParser
-from nfoParser import NfoParser
+from nfoFileParserImpl import NfoFileParserImpl
 from reParser import RegExParser
 from stashInterface import StashInterface
 
 
-class NfoSceneParser:
+class NfoFileParser:
 
     def __init__(self, stash):
         self._stash: StashInterface = stash
-        self._scene_id: str = None
-        self._scene: dict = None
+        self._item_id: str = None
+        self._item_type: str = None
+        self._item: dict = None
         self._folder_data: dict = {}
         self._file_data: dict = {}
         self._reload_tag_id = None
@@ -36,9 +37,13 @@ class NfoSceneParser:
                     f"Reload cancelled: '{config.reload_tag}' do not exist in stash.")
                 self._stash.exit_plugin("Reload task cancelled!")
 
-    def __prepare(self, scene_id):
-        self._scene_id = scene_id
-        self._scene = self._stash.gql_findScene(self._scene_id)
+    def __prepare_item(self, item_id, item_type):
+        self._item_id = item_id
+        self._item_type = item_type
+        if item_type == "scene":
+            self._item = self._stash.gql_findScene(self._item_id)
+        elif item_type == "image":
+            self._item = self._stash.gql_findImage(self._item_id)
         self._folder_data = {}
         self._file_data = {}
 
@@ -57,23 +62,23 @@ class NfoSceneParser:
     #         index += 1
 
     # Parses data from files. Supports nfo & regex
-    def __parse(self):
-        if self._scene["organized"] and config.skip_organized:
+    def __parse(self, file_path, organized=False, media_type="scene", entity_id=None):
+        if organized and config.skip_organized:
             log.LogInfo(
-                f"Skipping already organized scene id: {self._scene['id']}")
+                f"Skipping already organized {media_type} id: {entity_id}")
             return
 
         # Parse folder nfo (used as default)
         # TODO: Manage file path array.
-        folder_nfo_parser = NfoParser(self._scene["files"][0]["path"], None, True)
+        folder_nfo_parser = NfoFileParserImpl(file_path, None, True)
         self._folder_data = folder_nfo_parser.parse()
 
         # Parse scene nfo (nfo & regex).
-        re_parser = RegExParser(self._scene["files"][0]["path"], [
+        re_parser = RegExParser(file_path, [
             self._folder_data or AbstractParser.empty_default
         ])
         re_file_data = re_parser.parse()
-        nfo_parser = NfoParser(self._scene["files"][0]["path"], [
+        nfo_parser = NfoFileParserImpl(file_path, [
             self._folder_data or AbstractParser.empty_default,
             re_file_data or AbstractParser.empty_default
         ])
@@ -85,9 +90,14 @@ class NfoSceneParser:
         return self._file_data
 
     def __strip_b64(self, data):
-        if data.get("cover_image"):
-            data["cover_image"] = "*** Base64 image removed for readability ***"
-        return json.dumps(data)
+        if not data:
+            return "{}"
+        safe_data = data.copy()
+        if safe_data.get("cover_image"):
+            safe_data["cover_image"] = "*** Base64 image removed for readability ***"
+        if safe_data.get("other_image"):
+            safe_data["other_image"] = "*** Base64 image removed for readability ***"
+        return json.dumps(safe_data)
 
     # Updates the parsed data into stash db (and creates what is missing)
     def __update(self):
@@ -98,24 +108,29 @@ class NfoSceneParser:
             return
 
         # Retrieve/create performers, studios, movies,...
-        scene_data = self.__find_create_scene_data()
+        item_data = self.__find_create_item_data()
 
         if config.dry_mode:
             log.LogInfo(
-                f"Dry mode. Would have updated scene based on: {self.__strip_b64(scene_data)}")
-            return scene_data
+                f"Dry mode. Would have updated {self._item_type} based on: {self.__strip_b64(item_data)}")
+            return item_data
 
-        # Update scene data from parsed info
-        updated_scene = self._stash.gql_updateScene(self._scene_id, scene_data)
-        if updated_scene is not None and updated_scene["id"] == str(self._scene_id):
+        # Update item data from parsed info
+        updated_item = None
+        if self._item_type == "scene":
+            updated_item = self._stash.gql_updateScene(self._item_id, item_data)
+        elif self._item_type == "image":
+            updated_item = self._stash.gql_updateImage(self._item_id, item_data)
+
+        if updated_item is not None and updated_item["id"] == str(self._item_id):
             log.LogInfo(
-                f"Successfully updated scene: {self._scene_id} using '{self._file_data['file']}'")
+                f"Successfully updated {self._item_type}: {self._item_id} using '{self._file_data['file']}'")
         else:
             log.LogError(
-                f"Error updating scene: {self._scene_id} based on: {self.__strip_b64(scene_data)}.")
-        return scene_data
+                f"Error updating {self._item_type}: {self._item_id} based on: {self.__strip_b64(item_data)}.")
+        return item_data
 
-    def __find_create_scene_data(self):
+    def __find_create_item_data(self):
         # Lookup and/or create satellite objects in stash database
         file_performer_ids = []
         file_studio_id = None
@@ -124,45 +139,53 @@ class NfoSceneParser:
             file_performer_ids = self.__find_create_performers()
         if "studio" not in config.blacklist:
             file_studio_id = self.__find_create_studio()
-        if "movie" not in config.blacklist:
+        if "movie" not in config.blacklist and self._item_type == "scene":
             file_movie_id = self.__find_create_movie(file_studio_id)
         # "tags" blacklist applied inside func (blacklist create, allow find):
         file_tag_ids = self.__find_create_tags()
 
-        # Existing scene satellite data
-        scene_studio_id = self._scene.get("studio").get(
-            "id") if self._scene.get("studio") else None
-        scene_performer_ids = list(
-            map(lambda p: p.get("id"), self._scene["performers"]))
-        scene_tag_ids = list(map(lambda t: t.get("id"), self._scene["tags"]))
-        # in "reload" mode, removes the reload marker tag as part of the scene update
-        if config.reload_tag and self._reload_tag_id and self._reload_tag_id in scene_tag_ids:
-            scene_tag_ids.remove(self._reload_tag_id)
+        # Existing item satellite data
+        item_studio_id = self._item.get("studio").get(
+            "id") if self._item.get("studio") else None
+        item_performer_ids = list(
+            map(lambda p: p.get("id"), self._item.get("performers") or []))
+        item_tag_ids = list(map(lambda t: t.get("id"), self._item.get("tags") or []))
+        # in "reload" mode, removes the reload marker tag as part of the item update
+        if config.reload_tag and self._reload_tag_id and self._reload_tag_id in item_tag_ids:
+            item_tag_ids.remove(self._reload_tag_id)
         # Currently supports only one movie (the first one...)
-        scene_movie_id = scene_movie_index = None
-        if self._scene.get("movies"):
-            scene_movie_id = self._scene.get("movies")[0]["movie"]["id"]
-            scene_movie_index = self._scene.get("movies")[0]["scene_index"]
+        item_movie_id = item_movie_index = None
+        if self._item_type == "scene" and self._item.get("movies"):
+            item_movie_id = self._item.get("movies")[0]["movie"]["id"]
+            item_movie_index = self._item.get("movies")[0]["scene_index"]
 
-        # Merges file data with the existing scene data (priority to the nfo/regex content)
+        # Merges file data with the existing item data (priority to the nfo/regex content)
         bl = config.blacklist
-        scene_data = {
+        item_data = {
             "source": self._file_data["source"],
-            "title": (self._file_data["title"] or self._scene["title"] or None) if "title" not in bl else None,
-            "details": (self._file_data["details"] or self._scene["details"] or None) if "details" not in bl else None,
-            "date": (self._file_data["date"] or self._scene["date"] or None) if "date" not in bl else None,
-            "rating": (self._file_data["rating"] or self._scene["rating"] or None) if "rating" not in bl else None,
-            # TODO: scene URL is now an array
-            "urls": (self._file_data["urls"] or self._scene["urls"] or None) if "urls" not in bl else None,
-            "studio_id": file_studio_id or scene_studio_id or None,
-            "code": self._file_data["uniqueid"] if "uniqueid" in self._file_data else None,
-            "performer_ids": list(set(file_performer_ids + scene_performer_ids)),
-            "tag_ids": list(set(file_tag_ids + scene_tag_ids)),
-            "movie_id": file_movie_id or scene_movie_id or None,
-            "scene_index": self._file_data["scene_index"] or scene_movie_index or None,
-            "cover_image": (self._file_data["cover_image"] or None) if "image" not in bl else None,
+            "title": (self._file_data["title"] or self._item.get("title") or None) if "title" not in bl else None,
+            "details": (self._file_data["details"] or self._item.get("details") or None) if "details" not in bl else None,
+            "date": (self._file_data["date"] or self._item.get("date") or None) if "date" not in bl else None,
+            "rating": (self._file_data["rating"] or self._item.get("rating") or None) if "rating" not in bl else None,
+            # TODO: item URL is now an array
+            "urls": (self._file_data["urls"] or self._item.get("urls") or None) if "urls" not in bl else None,
+            "studio_id": file_studio_id or item_studio_id or None,
+            "performer_ids": list(set(file_performer_ids + item_performer_ids)),
+            "tag_ids": list(set(file_tag_ids + item_tag_ids)),
         }
-        return scene_data
+
+        if self._item_type == "scene":
+            item_data.update({
+                "code": self._file_data.get("uniqueid") if "uniqueid" in self._file_data else None,
+                "movie_id": file_movie_id or item_movie_id or None,
+                "scene_index": self._file_data.get("scene_index") or item_movie_index or None,
+                "cover_image": (self._file_data.get("cover_image") or None) if "image" not in bl else None,
+            })
+
+        if self._item_type == "image":
+            item_data["organized"] = self._item.get("organized")
+
+        return item_data
 
     def levenshtein_distance(self, str1, str2, ):
         counter = {"+": 0, "-": 0}
@@ -345,7 +368,7 @@ class NfoSceneParser:
                     f"Matched existing tag '{file_tag}' with id {matching_id} \
                         (direct: {match_direct}, alias: {match_alias}, match_count: {match_count})")
                 if match_count > 1:
-                    log.LogInfo(f"Linked scene with title '{self._file_data['title']}' to existing tag \
+                    log.LogInfo(f"Linked item with title '{self._file_data['title']}' to existing tag \
                         '{file_tag}' (id {matching_id}). \
                             Attention: {match_count} matches were found. Check to de-duplicate...")
         if created_tags:
@@ -382,16 +405,65 @@ class NfoSceneParser:
                 f"Matched existing movie '{self._file_data['movie']}' with id {matching_id}")
         return movie_id
 
-    def __process_scene(self, scene_id):
-        self.__prepare(scene_id)
-        file_data = self.__parse()
+    def _get_item_path(self, item_id: str, item_type: str) -> str | None:
+        """
+        Extracts the best usable file path from a scene or image item dictionary.
+
+        Args:
+            item_id: The ID of the item.
+            item_type: The type of the item ('scene' or 'image').
+
+        Returns:
+            The file path as a string, or None if it could not be determined.
+        """
+        file_path = None
+        if item_type == "scene":
+            if not self._item.get("files"):
+                log.LogError(f"Scene {item_id} has no associated files. Nothing to parse.")
+                return None
+            file_path = self._item["files"][0]["path"]
+        elif item_type == "image":
+            visual_files = self._item.get("visual_files") or []
+            for vf in visual_files:
+                if vf.get("path"):
+                    file_path = vf.get("path")
+                    break
+            paths = self._item.get("paths")
+            if isinstance(paths, dict):
+                file_path = file_path or paths.get("image") or paths.get("preview") or paths.get("thumbnail")
+            elif isinstance(paths, list) and paths:
+                primary_path = paths[0] or {}
+                file_path = file_path or primary_path.get("image") or primary_path.get("path")
+        return file_path
+
+    def __process_item(self, item_id: str, item_type: str) -> list:
+        """
+        Processes a single item (scene or image) by extracting metadata from NFO files or filenames.
+
+        Args:
+            item_id: The ID of the item in Stash.
+            item_type: The type of item ('scene' or 'image').
+
+        Returns:
+            A list containing [file_data, item_data], or [None, None] on error.
+        """
+        self.__prepare_item(item_id, item_type)
+        if not self._item:
+            log.LogError(f"{item_type.capitalize()} {item_id} not found in stash.")
+            return [None, None]
+
+        file_path = self._get_item_path(item_id, item_type)
+        if not file_path:
+            log.LogError(f"{item_type.capitalize()} {item_id} has no usable path information. Nothing to parse.")
+            return [None, None]
+
+        file_data = self.__parse(file_path, self._item.get("organized"), item_type, item_id)
         try:
-            scene_data = self.__update()
+            item_data = self.__update()
         except Exception as e:
-            log.LogError(
-                f"Error updating stash for scene {scene_id}: {repr(e)}")
-            scene_data = None
-        return [file_data, scene_data]
+            log.LogError(f"Error updating stash for {item_type} {item_id}: {repr(e)}")
+            item_data = None
+        return [file_data, item_data]
 
     def __process_reload(self):
         # Check if the required config was done
@@ -399,26 +471,37 @@ class NfoSceneParser:
             log.LogInfo(
                 "Reload disabled: 'reload_tag' is empty in plugin's config.py")
             return
-        # Find all scenes in stash with the reload marker tag
-        scenes = self._stash.gql_findScenes(self._reload_tag_id)
+
+        # Find all items in stash with the reload marker tag
+        all_items = []
+
+        scenes = self._stash.gql_findScenes(self._reload_tag_id) or {}
+        for scene in scenes.get("scenes", []):
+            all_items.append(("scene", scene))
+
+        images = self._stash.gql_findImages(self._reload_tag_id) or {}
+        for image in images.get("images", []):
+            all_items.append(("image", image))
+
+        item_count = len(all_items)
         log.LogDebug(
-            f"Found {len(scenes['scenes'])} scenes with the reload_tag in stash")
-        scene_count = len(scenes["scenes"])
-        if not scene_count:
-            log.LogInfo("No scenes found with the 'reload_tag' tag")
+            f"Found {item_count} items with the reload_tag in stash")
+        if not item_count:
+            log.LogInfo(f"No items found with the '{config.reload_tag}' tag")
             return
+
         reload_count = 0
         progress = 0
-        progress_step = 1 / scene_count
+        progress_step = 1 / item_count
         reload_tag = config.reload_tag.lower()
 
-        # Reloads only scenes marked with configured tags
-        for scene in scenes["scenes"]:
-            for tag in scene.get("tags"):
+        # Reloads only items marked with configured tags
+        for item_type, item in all_items:
+            for tag in item.get("tags"):
                 if tag.get("name").lower() == reload_tag:
                     log.LogDebug(
-                        f"Scene {scene['id']} is tagged to be reloaded.")
-                    self.__process_scene(scene["id"])
+                        f"{item_type.capitalize()} {item['id']} is tagged to be reloaded.")
+                    self.__process_item(item["id"], item_type)
                     reload_count += 1
                     break
             progress += progress_step
@@ -427,16 +510,21 @@ class NfoSceneParser:
         # Inform if nothing was done
         if reload_count == 0:
             log.LogInfo(
-                f"Scanned {scene_count} scenes. None had the '{config.reload_tag}' tag.")
+                f"Scanned {item_count} items. None had the '{config.reload_tag}' tag.")
 
     def process(self):
         if self._stash.get_mode() == "normal":
-            return self.__process_scene(self._stash.get_scene_id())
+            item_type = self._stash.get_item_type()
+            item_id = self._stash.get_item_id() or self._stash.get_target_id()
+            if not item_id:
+                log.LogError(f"{item_type.capitalize()} hook triggered but no item id provided.")
+                return [None, None]
+            return self.__process_item(item_id, item_type)
         elif self._stash.get_mode() == "reload":
             return self.__process_reload()
         else:
             raise Exception(
-                f"nfoSceneParser error: unsupported mode {self._stash.get_mode()}")
+                f"nfoFileParser error: unsupported mode {self._stash.get_mode()}")
 
 
 if __name__ == '__main__':
@@ -447,9 +535,9 @@ if __name__ == '__main__':
     else:
         fragment = json.loads(sys.stdin.read())
 
-    # Start processing: parse file data and update scenes
+    # Start processing: parse file data and update items
     # (+ create missing performer, tag, movie,...)
     stash_interface = StashInterface(fragment)
-    nfoSceneParser = NfoSceneParser(stash_interface)
-    nfoSceneParser.process()
+    nfoFileParser = NfoFileParser(stash_interface)
+    nfoFileParser.process()
     stash_interface.exit_plugin("Successful!")

@@ -1,0 +1,19 @@
+name: nfoFileParser
+description: Fills scene and image data from NFO or filename pattern
+version: 1.6.0
+url: https://discourse.stashapp.cc/t/nfosceneparser/1385
+exec:
+  - python
+  - "{pluginDir}/nfoFileParser.py"
+interface: raw
+hooks:
+  - name: hook_nfoFileParser
+    description: Fills item data on creation
+    triggeredBy:
+      - Scene.Create.Post
+      - Image.Create.Post
+tasks:
+  - name: "Reload tagged items"
+    description: Reload all items that have specific "marker" tag (see plugin's config.py)
+    defaultArgs:
+      mode: reload
