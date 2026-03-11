@@ -5,7 +5,7 @@ metadata:
 version: 1.6.1
 date: "2026-03-11 09:17:06"
 requires: []
-source_repository: https://stashapp.github.io/CommunityScripts/stable/index.yml
+source_repository: https://notsafeforgit.github.io/CommunityScripts/stable/index.yml
 files:
 - abstractParser.py
 - config.py
