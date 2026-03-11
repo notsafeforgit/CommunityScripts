@@ -13,6 +13,6 @@ files:
 - log.py
 - nfoFileParser.yml
 - reParser.py
-- main.py
+- nfoFileParser.py
 - README.md
 - xmlParser.py

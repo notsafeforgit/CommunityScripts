@@ -4,7 +4,7 @@ version: 1.6.1
 url: https://discourse.stashapp.cc/t/nfosceneparser/1385
 exec:
   - python
-  - "{pluginDir}/main.py"
+  - "{pluginDir}/nfoFileParser.py"
 interface: raw
 hooks:
   - name: hook_nfoFileParser
