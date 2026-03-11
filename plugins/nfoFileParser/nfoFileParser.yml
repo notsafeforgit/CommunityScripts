@@ -1,6 +1,6 @@
 name: nfoFileParser
 description: Fills scene and image data from NFO or filename pattern
-version: 1.6.1
+version: 1.6.2
 url: https://discourse.stashapp.cc/t/nfosceneparser/1385
 exec:
   - python
