@@ -2,7 +2,7 @@ id: nfoFileParser
 name: nfoFileParser
 metadata:
   description: Fills scene data from NFO or filename pattern
-version: 1.6.0
+version: 1.6.1
 date: "2025-12-20 01:59:59"
 requires: []
 source_repository: https://stashapp.github.io/CommunityScripts/stable/index.yml
@@ -13,6 +13,6 @@ files:
 - log.py
 - nfoFileParser.yml
 - reParser.py
-- nfoFileParser.py
+- main.py
 - README.md
-- nfoFileParserImpl.py
+- xmlParser.py
