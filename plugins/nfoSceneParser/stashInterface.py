@@ -333,6 +333,8 @@ class StashInterface:
             "date": image_data["date"],
             "rating100": image_data["rating"],
             "urls": image_data["urls"],
+            "studio_id": image_data.get("studio_id"),
+            "performer_ids": image_data.get("performer_ids"),
             "tag_ids": image_data["tag_ids"],
         }
         if image_data.get("organized") is not None:
