@@ -12,7 +12,7 @@ from reParser import RegExParser
 from stashInterface import StashInterface
 
 
-class NfoSceneParser:
+class NfoParserPlugin:
 
     def __init__(self, stash):
         self._stash: StashInterface = stash
@@ -508,7 +508,7 @@ class NfoSceneParser:
             return self.__process_reload()
         else:
             raise Exception(
-                f"nfoSceneParser error: unsupported mode {self._stash.get_mode()}")
+                f"nfoParserPlugin error: unsupported mode {self._stash.get_mode()}")
 
 
 if __name__ == '__main__':
@@ -519,9 +519,9 @@ if __name__ == '__main__':
     else:
         fragment = json.loads(sys.stdin.read())
 
-    # Start processing: parse file data and update scenes
+    # Start processing: parse file data and update items
     # (+ create missing performer, tag, movie,...)
     stash_interface = StashInterface(fragment)
-    nfoSceneParser = NfoSceneParser(stash_interface)
-    nfoSceneParser.process()
+    nfoParserPlugin = NfoParserPlugin(stash_interface)
+    nfoParserPlugin.process()
     stash_interface.exit_plugin("Successful!")
