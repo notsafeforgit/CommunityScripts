@@ -185,6 +185,23 @@ class NfoFileParserPlugin:
         if self._item_type == "image":
             item_data["organized"] = self._item.get("organized")
 
+        if getattr(config, "set_organized_nfo", False) and self._file_data["source"] == "nfo":
+            has_mandatory_tags = True
+            item_keys = [item[0].replace("_id", "") if item[1] else None for item in item_data.items()]
+            if self._folder_data:
+                for k, v in self._folder_data.items():
+                    if v:
+                        if k == "actors":
+                            item_keys.append("performers")
+                        else:
+                            item_keys.append(k)
+            for mandatory_tag in getattr(config, "set_organized_only_if", []):
+                if mandatory_tag not in item_keys:
+                    has_mandatory_tags = False
+                    break
+            if has_mandatory_tags:
+                item_data["organized"] = True
+
         return item_data
 
     def levenshtein_distance(self, str1, str2, ):

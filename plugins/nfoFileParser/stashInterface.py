@@ -295,16 +295,8 @@ class StashInterface:
         if scene_data["cover_image"] is not None:
             input_data.update({"cover_image": scene_data["cover_image"]})
         # Update to "organized" according to config
-        if config.set_organized_nfo and scene_data["source"] == "nfo":
-            has_mandatory_tags = True
-            scene_keys = [item[0].replace(
-                "_id", "") if item[1] else None for item in scene_data.items()]
-            for mandatory_tag in config.set_organized_only_if:
-                if mandatory_tag not in scene_keys:
-                    has_mandatory_tags = False
-                    break
-            if has_mandatory_tags:
-                input_data.update({"organized": True})
+        if scene_data.get("organized"):
+            input_data.update({"organized": True})
         # Update movie if exists
         if scene_data["movie_id"] is not None:
             input_data["movies"] = {
