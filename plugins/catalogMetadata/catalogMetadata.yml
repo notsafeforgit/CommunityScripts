@@ -1,0 +1,19 @@
+name: Catalog Metadata
+description: Populate scenes and images from scrape-catalog databases, translations, and manual metadata
+version: 1.0.0
+url: https://github.com/notsafeforgit/CommunityScripts/tree/main/plugins/catalogMetadata
+exec:
+  - python
+  - "{pluginDir}/catalogMetadata.py"
+interface: raw
+hooks:
+  - name: hook_catalogMetadata
+    description: Apply catalog metadata when a scene or image is created
+    triggeredBy:
+      - Scene.Create.Post
+      - Image.Create.Post
+tasks:
+  - name: "Refresh tagged items from catalog"
+    description: Refresh scenes and images tagged _CATALOG_RELOAD, including organized items
+    defaultArgs:
+      mode: reload

@@ -1,0 +1,568 @@
+from math import log10
+import sys
+import json
+import difflib
+import config
+import log
+import re
+import unicodedata
+from abstractParser import AbstractParser
+from xmlParser import XmlParser
+from reParser import RegExParser
+from stashInterface import StashInterface
+from catalogReader import get_reader
+
+
+class CatalogMetadataPlugin:
+
+    def __init__(self, stash):
+        self._stash: StashInterface = stash
+        self._item_id: str = None
+        self._item_type: str = None
+        self._item: dict = None
+        self._folder_data: dict = {}
+        self._file_data: dict = {}
+        self._reload_tag_id = None
+
+        # For reload mode, checks & preload ids matching marker tag config
+        if self._stash.get_mode() == "reload" and config.reload_tag:
+            reload_tag_found = False
+            results = self._stash.gql_findTags(config.reload_tag)
+            for tag in results.get("tags"):
+                if tag["name"].lower() == config.reload_tag.lower():
+                    self._reload_tag_id = tag["id"]
+                    reload_tag_found = True
+                    break
+            if not reload_tag_found:
+                log.LogError(
+                    f"Reload cancelled: '{config.reload_tag}' do not exist in stash.")
+                self._stash.exit_plugin("Reload task cancelled!")
+
+    def __prepare_item(self, item_id, item_type):
+        self._item_id = item_id
+        self._item_type = item_type
+        if item_type == "scene":
+            self._item = self._stash.gql_findScene(self._item_id)
+        elif item_type == "image":
+            self._item = self._stash.gql_findImage(self._item_id)
+        self._folder_data = {}
+        self._file_data = {}
+
+    # def __substitute_file_data(self):
+    #     # Nothing to do if no config or actors...
+    #     if not config.performers_substitutions or not self._file_data.get("actors"):
+    #         return
+    #     # Substitute performers names according to config
+    #     index = 0
+    #     for actor in self._file_data.get("actors"):
+    #         for subst in config.performers_substitutions:
+    #             if subst[0].lower() in actor.lower():
+    #                 self._file_data.get("actors")[index] = actor.replace(
+    #                     subst[0], subst[1])
+    #                 break
+    #         index += 1
+
+    # Parses catalog metadata, including preserved XML, with filename fallback.
+    def __parse(self, file_path, organized=False, media_type="scene", entity_id=None):
+        if organized and config.skip_organized and self._stash.get_mode() != "reload":
+            log.LogInfo(
+                f"Skipping already organized {media_type} id: {entity_id}")
+            return
+
+        # Only handle media belonging to the configured catalog source.
+        try:
+            get_reader().relpath(file_path)
+        except ValueError:
+            log.LogDebug(f"Skipping media outside the catalog source: {file_path}")
+            return
+
+        # Parse preserved folder metadata (used as defaults).
+        # TODO: Manage file path array.
+        folder_nfo_parser = XmlParser(file_path, None, True)
+        self._folder_data = folder_nfo_parser.parse()
+
+        # Combine file metadata with filename rules.
+        re_parser = RegExParser(file_path, [
+            self._folder_data or AbstractParser.empty_default
+        ])
+        re_file_data = re_parser.parse()
+        nfo_parser = XmlParser(file_path, [
+            self._folder_data or AbstractParser.empty_default,
+            re_file_data or AbstractParser.empty_default
+        ])
+        nfo_file_data = nfo_parser.parse()
+
+        # Catalog metadata is preferred; filename rules provide a fallback.
+        self._file_data = nfo_file_data or re_file_data
+        # self.__substitute_file_data()
+        return self._file_data
+
+    def __strip_b64(self, data):
+        if not data:
+            return "{}"
+        safe_data = data.copy()
+        if safe_data.get("cover_image"):
+            safe_data["cover_image"] = "*** Base64 image removed for readability ***"
+        if safe_data.get("other_image"):
+            safe_data["other_image"] = "*** Base64 image removed for readability ***"
+        return json.dumps(safe_data)
+
+    # Updates the parsed data into stash db (and creates what is missing)
+    def __update(self):
+        # Require usable metadata before updating an entity.
+        if not self._file_data:
+            log.LogDebug(
+                "No matching catalog metadata or filename rule: nothing done...")
+            return
+
+        # Retrieve/create performers, studios, movies,...
+        item_data = self.__find_create_item_data()
+
+        if config.dry_mode:
+            log.LogInfo(
+                f"Dry mode. Would have updated {self._item_type} based on: {self.__strip_b64(item_data)}")
+            return item_data
+
+        # Update item data from parsed info
+        updated_item = None
+        if self._item_type == "scene":
+            updated_item = self._stash.gql_updateScene(self._item_id, item_data)
+        elif self._item_type == "image":
+            updated_item = self._stash.gql_updateImage(self._item_id, item_data)
+
+        if updated_item is not None and updated_item["id"] == str(self._item_id):
+            log.LogInfo(
+                f"Successfully updated {self._item_type}: {self._item_id} using '{self._file_data['file']}'")
+        else:
+            log.LogError(
+                f"Error updating {self._item_type}: {self._item_id} based on: {self.__strip_b64(item_data)}.")
+        return item_data
+
+    def __find_create_item_data(self):
+        # Lookup and/or create satellite objects in stash database
+        file_performer_ids = []
+        file_studio_id = None
+        file_movie_id = None
+        if "performers" not in config.blacklist:
+            file_performer_ids = self.__find_create_performers()
+        if "studio" not in config.blacklist:
+            file_studio_id = self.__find_create_studio()
+        if "movie" not in config.blacklist and self._item_type == "scene":
+            file_movie_id = self.__find_create_movie(file_studio_id)
+        # "tags" blacklist applied inside func (blacklist create, allow find):
+        file_tag_ids = self.__find_create_tags()
+
+        # Existing item satellite data
+        item_studio_id = self._item.get("studio").get(
+            "id") if self._item.get("studio") else None
+        item_performer_ids = list(
+            map(lambda p: p.get("id"), self._item.get("performers") or []))
+        item_tag_ids = list(map(lambda t: t.get("id"), self._item.get("tags") or []))
+        # in "reload" mode, removes the reload marker tag as part of the item update
+        if config.reload_tag and self._reload_tag_id and self._reload_tag_id in item_tag_ids:
+            item_tag_ids.remove(self._reload_tag_id)
+        # Currently supports only one movie (the first one...)
+        item_movie_id = item_movie_index = None
+        if self._item_type == "scene" and self._item.get("movies"):
+            item_movie_id = self._item.get("movies")[0]["movie"]["id"]
+            item_movie_index = self._item.get("movies")[0]["scene_index"]
+
+        # Merge catalog and filename metadata with existing item data.
+        bl = config.blacklist
+        item_data = {
+            "source": self._file_data["source"],
+            "title": (self._file_data["title"] or self._item.get("title") or None) if "title" not in bl else None,
+            "details": (self._file_data["details"] or self._item.get("details") or None) if "details" not in bl else None,
+            "date": (self._file_data["date"] or self._item.get("date") or None) if "date" not in bl else None,
+            "rating": (self._file_data["rating"] or self._item.get("rating") or None) if "rating" not in bl else None,
+            # TODO: item URL is now an array
+            "urls": (self._file_data["urls"] or self._item.get("urls") or None) if "urls" not in bl else None,
+            "studio_id": file_studio_id or item_studio_id or None,
+            "performer_ids": list(set(file_performer_ids + item_performer_ids)),
+            "tag_ids": list(set(file_tag_ids + item_tag_ids)),
+        }
+
+        if self._item_type == "scene":
+            item_data.update({
+                "code": self._file_data.get("uniqueid") if "uniqueid" in self._file_data else None,
+                "movie_id": file_movie_id or item_movie_id or None,
+                "scene_index": self._file_data.get("scene_index") or item_movie_index or None,
+                "cover_image": (self._file_data.get("cover_image") or None) if "image" not in bl else None,
+            })
+
+        if self._item_type == "image":
+            item_data["organized"] = self._item.get("organized")
+
+        if getattr(config, "set_organized_catalog", False) and self._file_data["source"] in ("nfo", "catalog"):
+            has_mandatory_tags = True
+            item_keys = [item[0].replace("_id", "") if item[1] else None for item in item_data.items()]
+            if self._folder_data:
+                for k, v in self._folder_data.items():
+                    if v:
+                        if k == "actors":
+                            item_keys.append("performers")
+                        else:
+                            item_keys.append(k)
+            for mandatory_tag in getattr(config, "set_organized_only_if", []):
+                if mandatory_tag not in item_keys:
+                    has_mandatory_tags = False
+                    break
+            if has_mandatory_tags:
+                item_data["organized"] = True
+
+        return item_data
+
+    def levenshtein_distance(self, str1, str2, ):
+        counter = {"+": 0, "-": 0}
+        distance = 0
+        for edit_code, *_ in difflib.ndiff(str1, str2):
+            if edit_code == " ":
+                distance += max(counter.values())
+                counter = {"+": 0, "-": 0}
+            else:
+                counter[edit_code] += 1
+        distance += max(counter.values())
+        return distance
+
+    def __is_matching(self, text1, text2, tolerance=False):
+        if not text1 or not text2:
+            return text1 == text2
+
+        # Normalize Unicode to handle emoji and special character variations
+        normalized_text1 = unicodedata.normalize('NFC', text1).strip()
+        normalized_text2 = unicodedata.normalize('NFC', text2).strip()
+
+        if tolerance:
+            distance = self.levenshtein_distance(normalized_text1.lower(), normalized_text2.lower())
+            # Ensure minimum tolerance for very short strings (like single emoji)
+            tolerance_threshold = max(config.levenshtein_distance_tolerance * log10(max(len(normalized_text1), 2)), 1)
+            match = distance < tolerance_threshold
+            if match and distance:
+                log.LogDebug(f"Matched with distance {distance}: '{normalized_text1}' with '{normalized_text2}'")
+            return match
+        else:
+            return normalized_text1.lower() == normalized_text2.lower()
+
+    def __find_create_performers(self):
+        performer_ids = []
+        created_performers = []
+        for actor in self._file_data["actors"]:
+            if not actor:
+                continue
+            performers = self._stash.gql_findPerformers(actor)
+            match_direct = False
+            match_alias = False
+            matching_id = None
+            matching_name = None
+            match_count = 0
+            # 1st pass for direct name matches
+            for performer in performers["performers"]:
+                if self.__is_matching(actor, performer["name"]):
+                    if not matching_id:
+                        matching_id = performer["id"]
+                        match_direct = True
+                    match_count += 1
+            # log.LogDebug(
+            #     f"Direct '{actor}' performer search: matching_id: {matching_id}, match_count: {match_count}")
+            # 2nd pass for alias matches
+            if not matching_id and \
+                    config.search_performer_aliases and \
+                    (not config.ignore_single_name_performer_aliases or " " in actor or actor in config.single_name_whitelist):
+                for performer in performers["performers"]:
+                    for alias in performer["alias_list"]:
+                        if self.__is_matching(actor, alias):
+                            if not matching_id:
+                                matching_id = performer["id"]
+                                matching_name = performer["name"]
+                                match_alias = True
+                            match_count += 1
+                # log.LogDebug(
+                #     f"Aliases '{actor}' performer search: matching_id: {matching_id}, matching_name: {matching_name}, match_count: {match_count}")
+            if not matching_id:
+                # Create a new performer when it does not exist
+                if not config.create_missing_performers or config.dry_mode:
+                    log.LogInfo(
+                        f"'{actor}' performer creation prevented by config")
+                else:
+                    new_performer = self._stash.gql_performerCreate(actor)
+                    created_performers.append(actor)
+                    performer_ids.append(new_performer["id"])
+            else:
+                performer_ids.append(matching_id)
+                log.LogDebug(f"Matched existing performer '{actor}' with \
+                    id {matching_id} name {matching_name or actor} \
+                    (direct: {match_direct}, alias: {match_alias}, match_count: {match_count})")
+                if match_count > 1:
+                    log.LogInfo(f"Linked scene with title '{self._file_data['title']}' to existing \
+                        performer '{actor}' (id {matching_id}). Attention: {match_count} matches \
+                        were found. Check to de-duplicate your performers and their aliases...")
+        if created_performers:
+            log.LogInfo(f"Created missing performers '{created_performers}'")
+        return performer_ids
+
+    def __find_create_studio(self) -> str:
+        if not self._file_data["studio"]:
+            return
+        studio_id = None
+        studios = self._stash.gql_findStudios(self._file_data["studio"])
+        match_direct = False
+        match_alias = False
+        matching_id = None
+        match_count = 0
+        # 1st pass for direct name matches
+        for studio in studios["studios"]:
+            if self.__is_matching(self._file_data["studio"], studio["name"]):
+                if not matching_id:
+                    matching_id = studio["id"]
+                    match_direct = True
+                match_count += 1
+        # 2nd pass for alias matches
+        if not matching_id and config.search_studio_aliases:
+            for studio in studios["studios"]:
+                if studio["aliases"]:
+                    for alias in studio["aliases"]:
+                        if self.__is_matching(self._file_data["studio"], alias):
+                            if not matching_id:
+                                matching_id = studio["id"]
+                                match_alias = True
+                            match_count += 1
+        # Create a new studio when it does not exist
+        if not matching_id:
+            if not config.create_missing_studios or config.dry_mode:
+                log.LogInfo(
+                    f"'{self._file_data['studio']}' studio creation prevented by config")
+            else:
+                new_studio = self._stash.gql_studioCreate(
+                    self._file_data["studio"])
+                studio_id = new_studio["id"]
+                log.LogInfo(
+                    f"Created missing studio '{self._file_data['studio']}' with id {new_studio['id']}")
+        else:
+            studio_id = matching_id
+            log.LogDebug(f"Matched existing studio '{self._file_data['studio']}' with id \
+                {matching_id} (direct: {match_direct}, alias: {match_alias}, match_count: {match_count})")
+            if match_count > 1:
+                log.LogInfo(f"Linked scene with title '{self._file_data['title']}' to existing studio \
+                    '{self._file_data['studio']}' (id {matching_id}). \
+                        Attention: {match_count} matches were found. Check to de-duplicate...")
+        return studio_id
+
+    def __find_create_tags(self):
+        tag_ids = []
+        created_tags = []
+        blacklisted_tags = [tag.lower() for tag in config.blacklisted_tags]
+        # find all stash tags
+        all_tags = self._stash.gql_findTags()
+        for file_tag in self._file_data["tags"]:
+            # skip empty or blacklisted tags
+            if not file_tag or file_tag.lower() in blacklisted_tags:
+                continue
+            match_direct = False
+            match_alias = False
+            matching_id = None
+            match_count = 0
+            # 1st pass for direct name matches
+            for tag in all_tags["tags"]:
+                if self.__is_matching(file_tag, tag["name"], True):
+                    if not matching_id:
+                        matching_id = tag["id"]
+                        match_direct = True
+                    match_count += 1
+            # 2nd pass for alias matches
+            if not matching_id and config.search_studio_aliases:
+                for tag in all_tags["tags"]:
+                    if tag["aliases"]:
+                        for alias in tag["aliases"]:
+                            if self.__is_matching(file_tag, alias, True):
+                                if not matching_id:
+                                    matching_id = tag["id"]
+                                    match_alias = True
+                                match_count += 1
+            # Create a new tag when it does not exist
+            if not matching_id:
+                if not config.create_missing_tags or config.dry_mode or "tags" in config.blacklist:
+                    log.LogDebug(
+                        f"'{file_tag}' tag creation prevented by config")
+                else:
+                    new_tag = self._stash.gql_tagCreate(file_tag)
+                    created_tags.append(file_tag)
+                    tag_ids.append(new_tag["id"])
+            else:
+                tag_ids.append(matching_id)
+                log.LogDebug(
+                    f"Matched existing tag '{file_tag}' with id {matching_id} \
+                        (direct: {match_direct}, alias: {match_alias}, match_count: {match_count})")
+                if match_count > 1:
+                    log.LogInfo(f"Linked item with title '{self._file_data['title']}' to existing tag \
+                        '{file_tag}' (id {matching_id}). \
+                            Attention: {match_count} matches were found. Check to de-duplicate...")
+        if created_tags:
+            log.LogInfo(f"Created missing tags '{created_tags}'")
+        return tag_ids
+
+    def __find_create_movie(self, studio_id):
+        if not self._file_data["movie"]:
+            return
+        movie_id = None
+        movies = self._stash.gql_findMovies(self._file_data["movie"])
+        matching_id = None
+        # [ ] possible improvement: support movie aliases?
+        # Ensure direct name match
+        for movie in movies["movies"]:
+            if self.__is_matching(self._file_data["movie"], movie["name"]):
+                if not matching_id:
+                    matching_id = movie["id"]
+        # Create a new movie when it does not exist
+        if not matching_id:
+            if not config.create_missing_movies or config.dry_mode:
+                log.LogInfo(
+                    f"'{self._file_data['movie']}' movie creation prevented by config")
+            else:
+                new_movie = self._stash.gql_movieCreate(
+                    self._file_data, studio_id, self._folder_data)
+                movie_id = new_movie["id"]
+                log.LogInfo(
+                    f"Created missing movie '{self._file_data['movie']}' with id {new_movie['id']}")
+        else:
+            # [ ] Possible improvement: update existing movie with nfo data
+            movie_id = matching_id
+            log.LogDebug(
+                f"Matched existing movie '{self._file_data['movie']}' with id {matching_id}")
+        return movie_id
+
+    def _get_item_path(self, item_id: str, item_type: str) -> str | None:
+        """
+        Extracts the best usable file path from a scene or image item dictionary.
+
+        Args:
+            item_id: The ID of the item.
+            item_type: The type of the item ('scene' or 'image').
+
+        Returns:
+            The file path as a string, or None if it could not be determined.
+        """
+        file_path = None
+        if item_type == "scene":
+            if not self._item.get("files"):
+                log.LogError(f"Scene {item_id} has no associated files. Nothing to parse.")
+                return None
+            file_path = self._item["files"][0]["path"]
+        elif item_type == "image":
+            visual_files = self._item.get("visual_files") or []
+            for vf in visual_files:
+                if vf.get("path"):
+                    file_path = vf.get("path")
+                    break
+            paths = self._item.get("paths")
+            if isinstance(paths, dict):
+                file_path = file_path or paths.get("image") or paths.get("preview") or paths.get("thumbnail")
+            elif isinstance(paths, list) and paths:
+                primary_path = paths[0] or {}
+                file_path = file_path or primary_path.get("image") or primary_path.get("path")
+        return file_path
+
+    def __process_item(self, item_id: str, item_type: str) -> list:
+        """
+        Processes a single item (scene or image) by extracting metadata from NFO files or filenames.
+
+        Args:
+            item_id: The ID of the item in Stash.
+            item_type: The type of item ('scene' or 'image').
+
+        Returns:
+            A list containing [file_data, item_data], or [None, None] on error.
+        """
+        self.__prepare_item(item_id, item_type)
+        if not self._item:
+            log.LogError(f"{item_type.capitalize()} {item_id} not found in stash.")
+            return [None, None]
+
+        file_path = self._get_item_path(item_id, item_type)
+        if not file_path:
+            log.LogError(f"{item_type.capitalize()} {item_id} has no usable path information. Nothing to parse.")
+            return [None, None]
+
+        file_data = self.__parse(file_path, self._item.get("organized"), item_type, item_id)
+        try:
+            item_data = self.__update()
+        except Exception as e:
+            log.LogError(f"Error updating stash for {item_type} {item_id}: {repr(e)}")
+            item_data = None
+        return [file_data, item_data]
+
+    def __process_reload(self):
+        # Check if the required config was done
+        if not config.reload_tag:
+            log.LogInfo(
+                "Reload disabled: 'reload_tag' is empty in plugin's config.py")
+            return
+
+        # Find all items in stash with the reload marker tag
+        all_items = []
+
+        scenes = self._stash.gql_findScenes(self._reload_tag_id) or {}
+        for scene in scenes.get("scenes", []):
+            all_items.append(("scene", scene))
+
+        images = self._stash.gql_findImages(self._reload_tag_id) or {}
+        for image in images.get("images", []):
+            all_items.append(("image", image))
+
+        item_count = len(all_items)
+        log.LogDebug(
+            f"Found {item_count} items with the reload_tag in stash")
+        if not item_count:
+            log.LogInfo(f"No items found with the '{config.reload_tag}' tag")
+            return
+
+        reload_count = 0
+        progress = 0
+        progress_step = 1 / item_count
+        reload_tag = config.reload_tag.lower()
+
+        # Reloads only items marked with configured tags
+        for item_type, item in all_items:
+            for tag in item.get("tags"):
+                if tag.get("name").lower() == reload_tag:
+                    log.LogDebug(
+                        f"{item_type.capitalize()} {item['id']} is tagged to be reloaded.")
+                    self.__process_item(item["id"], item_type)
+                    reload_count += 1
+                    break
+            progress += progress_step
+            log.LogProgress(progress)
+
+        # Inform if nothing was done
+        if reload_count == 0:
+            log.LogInfo(
+                f"Scanned {item_count} items. None had the '{config.reload_tag}' tag.")
+
+    def process(self):
+        if self._stash.get_mode() == "normal":
+            item_type = self._stash.get_item_type()
+            item_id = self._stash.get_item_id() or self._stash.get_target_id()
+            if not item_id:
+                log.LogError(f"{item_type.capitalize()} hook triggered but no item id provided.")
+                return [None, None]
+            return self.__process_item(item_id, item_type)
+        elif self._stash.get_mode() == "reload":
+            return self.__process_reload()
+        else:
+            raise Exception(
+                f"catalogMetadata error: unsupported mode {self._stash.get_mode()}")
+
+
+if __name__ == '__main__':
+    # Init
+    if len(sys.argv) > 1:
+        # Loads from argv for testing...
+        fragment = json.loads(sys.argv[1])
+    else:
+        fragment = json.loads(sys.stdin.read())
+
+    # Start processing: parse file data and update items
+    # (+ create missing performer, tag, movie,...)
+    stash_interface = StashInterface(fragment)
+    catalogMetadataPlugin = CatalogMetadataPlugin(stash_interface)
+    catalogMetadataPlugin.process()
+    stash_interface.exit_plugin("Successful!")
