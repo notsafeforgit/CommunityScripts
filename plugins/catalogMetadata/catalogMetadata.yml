@@ -1,6 +1,7 @@
+apiVersion: 3
 name: Catalog Metadata
 description: Import catalog metadata and map Stash edits back to manual catalog fields
-version: 1.1.0
+version: 1.2.0
 url: https://github.com/notsafeforgit/CommunityScripts/tree/main/plugins/catalogMetadata
 exec:
 - python
@@ -79,51 +80,51 @@ settings:
     description: JSON array of standard import fields to exclude. Explicit import mappings take precedence.
     default: '["rating"]'
   scene_import_mappings:
-    type: STRING
+    type: JSON
     editor: JQ_MAP
     displayName: Scene import mappings
     description: 'JSON object: Stash update field → jq expression. Input: .catalog (resolved metadata), .observations[].payload
       (source JSON), .stash (current item), .path. Overrides standard imports; empty leaves a field untouched.'
-    default: '{}'
+    default: {}
   scene_export_mappings:
-    type: STRING
+    type: JSON
     editor: JQ_MAP
     displayName: Scene export mappings
     description: 'JSON object: catalog manual field → jq expression. Input also includes .fields (changed Stash
       fields), .input, and .settings. Supported targets: title, details, date, director, studio, movie, actors,
       tags, urls. Empty skips; null removes an override and inherits source metadata.'
-    default: "{\n  \"title\": \"select(.fields | index(\\\"title\\\")) | .stash.title | select(type == \\\"string\\\
-      \" and length > 0)\",\n  \"details\": \"select(.fields | index(\\\"details\\\")) | .stash.details | select(type\
-      \ == \\\"string\\\" and length > 0)\",\n  \"date\": \"select(.fields | index(\\\"date\\\")) | .stash.date\
-      \ | select(type == \\\"string\\\" and length > 0)\",\n  \"urls\": \"select(.fields | index(\\\"urls\\\") or\
-      \ index(\\\"url\\\")) | .stash.urls | select(length > 0)\",\n  \"studio\": \"select(.fields | index(\\\"studio_id\\\
-      \")) | .stash.studio.name | select(type == \\\"string\\\" and length > 0)\",\n  \"actors\": \"select(.fields\
-      \ | index(\\\"performer_ids\\\")) | [.stash.performers[].name] | select(length > 0)\",\n  \"tags\": \"select(.fields\
-      \ | index(\\\"tag_ids\\\")) | .settings.reload_tag as $reload | [.stash.tags[].name | select(. != $reload)]\
-      \ | select(length > 0)\",\n  \"director\": \"select(.fields | index(\\\"director\\\")) | .stash.director |\
-      \ select(type == \\\"string\\\" and length > 0)\",\n  \"movie\": \"select(.fields | index(\\\"groups\\\")\
-      \ or index(\\\"movies\\\")) | .stash.groups[0].group.name | select(type == \\\"string\\\" and length > 0)\"\
-      \n}"
+    default:
+      title: select(.fields | index("title")) | .stash.title | select(type == "string" and length > 0)
+      details: select(.fields | index("details")) | .stash.details | select(type == "string" and length > 0)
+      date: select(.fields | index("date")) | .stash.date | select(type == "string" and length > 0)
+      urls: select(.fields | index("urls") or index("url")) | .stash.urls | select(length > 0)
+      studio: select(.fields | index("studio_id")) | .stash.studio.name | select(type == "string" and length > 0)
+      actors: select(.fields | index("performer_ids")) | [.stash.performers[].name] | select(length > 0)
+      tags: select(.fields | index("tag_ids")) | .settings.reload_tag as $reload | [.stash.tags[].name | select(.
+        != $reload)] | select(length > 0)
+      director: select(.fields | index("director")) | .stash.director | select(type == "string" and length > 0)
+      movie: select(.fields | index("groups") or index("movies")) | .stash.groups[0].group.name | select(type ==
+        "string" and length > 0)
   image_import_mappings:
-    type: STRING
+    type: JSON
     editor: JQ_MAP
     displayName: Image import mappings
     description: 'JSON object: Stash update field → jq expression. Input: .catalog (resolved metadata), .observations[].payload
       (source JSON), .stash (current item), .path. Overrides standard imports; empty leaves a field untouched.'
-    default: '{}'
+    default: {}
   image_export_mappings:
-    type: STRING
+    type: JSON
     editor: JQ_MAP
     displayName: Image export mappings
     description: 'JSON object: catalog manual field → jq expression. Input also includes .fields (changed Stash
       fields), .input, and .settings. Supported targets: title, details, date, director, studio, movie, actors,
       tags, urls. Empty skips; null removes an override and inherits source metadata.'
-    default: "{\n  \"title\": \"select(.fields | index(\\\"title\\\")) | .stash.title | select(type == \\\"string\\\
-      \" and length > 0)\",\n  \"details\": \"select(.fields | index(\\\"details\\\")) | .stash.details | select(type\
-      \ == \\\"string\\\" and length > 0)\",\n  \"date\": \"select(.fields | index(\\\"date\\\")) | .stash.date\
-      \ | select(type == \\\"string\\\" and length > 0)\",\n  \"urls\": \"select(.fields | index(\\\"urls\\\") or\
-      \ index(\\\"url\\\")) | .stash.urls | select(length > 0)\",\n  \"studio\": \"select(.fields | index(\\\"studio_id\\\
-      \")) | .stash.studio.name | select(type == \\\"string\\\" and length > 0)\",\n  \"actors\": \"select(.fields\
-      \ | index(\\\"performer_ids\\\")) | [.stash.performers[].name] | select(length > 0)\",\n  \"tags\": \"select(.fields\
-      \ | index(\\\"tag_ids\\\")) | .settings.reload_tag as $reload | [.stash.tags[].name | select(. != $reload)]\
-      \ | select(length > 0)\"\n}"
+    default:
+      title: select(.fields | index("title")) | .stash.title | select(type == "string" and length > 0)
+      details: select(.fields | index("details")) | .stash.details | select(type == "string" and length > 0)
+      date: select(.fields | index("date")) | .stash.date | select(type == "string" and length > 0)
+      urls: select(.fields | index("urls") or index("url")) | .stash.urls | select(length > 0)
+      studio: select(.fields | index("studio_id")) | .stash.studio.name | select(type == "string" and length > 0)
+      actors: select(.fields | index("performer_ids")) | [.stash.performers[].name] | select(length > 0)
+      tags: select(.fields | index("tag_ids")) | .settings.reload_tag as $reload | [.stash.tags[].name | select(.
+        != $reload)] | select(length > 0)

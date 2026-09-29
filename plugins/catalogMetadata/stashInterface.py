@@ -62,9 +62,9 @@ class StashInterface:
 
     def gql_pluginSettings(self):
         result = self.__gql_call('''query {
-            pluginSettings(plugin_id: "catalogMetadata") { values }
+            pluginSettingsV3(plugin_id: "catalogMetadata") { values }
         }''')
-        return result['pluginSettings']['values']
+        return result['pluginSettingsV3']['values']
 
     def gql_evaluateMappings(self, mappings, data):
         result = self.__gql_call('''query($mappings: Map!, $input: Any) {

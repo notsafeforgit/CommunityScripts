@@ -48,6 +48,7 @@ class Validator {
 
     const schemaPath = path.resolve(__dirname, './plugin.schema.json');
     this.schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
+    this.schemaV3 = JSON.parse(fs.readFileSync(path.resolve(__dirname, './plugin-v3.schema.json'), 'utf8'));
     this.ajv = new Ajv({
       // allErrors: true,
       allowUnionTypes: true, // Use allowUnionTypes instead of ignoreKeywordsWithRef
@@ -69,7 +70,8 @@ class Validator {
     }
 
     let result = true;
-    const validate = this.ajv.compile(this.schema);
+    const validateLegacy = this.ajv.compile(this.schema);
+    const validateV3 = this.ajv.compile(this.schemaV3);
 
     for (const file of plugins) {
       const relPath = path.relative(process.cwd(), file);
@@ -86,11 +88,14 @@ class Validator {
         else continue;
       }
 
+      const isVersioned = data && Object.hasOwn(data, 'apiVersion');
+      const schema = isVersioned ? this.schemaV3 : this.schema;
+      const validate = isVersioned ? validateV3 : validateLegacy;
       let valid = validate(data);
 
       // Output validation errors
       if (!valid) {
-        const output = betterAjvErrors(this.schema, data, validate.errors, { indent: 2 });
+        const output = betterAjvErrors(schema, data, validate.errors, { indent: 2 });
         console.log(output);
 
         // Detailed error checks

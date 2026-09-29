@@ -64,11 +64,11 @@ class MappingTests(unittest.TestCase):
 
     def test_custom_import_handles_raw_fields_null_false_and_custom_fields(self):
         self.capture()
-        mappings = self.mappings(scene_import_mappings=json.dumps({
+        mappings = self.mappings(scene_import_mappings={
             'title': '.observations[-1].payload.content | ascii_upcase',
             'details': 'empty', 'date': 'null', 'organized': 'false', 'rating100': '0',
             'custom_fields': '{partial: {catalog_author: .observations[-1].payload.author.name}}',
-        }))
+        })
         with self.reader_patch():
             payload = mappings.import_payload('scene', {'id': '42'}, self.path, self.reader.metadata(self.path),
                                               {'title': 'Old', 'details': 'Keep', 'date': '2020-01-01'})

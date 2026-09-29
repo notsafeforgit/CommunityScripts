@@ -27,7 +27,10 @@ class CatalogMappings:
         for entity in ('scene', 'image'):
             for direction in ('import', 'export'):
                 key = f'{entity}_{direction}_mappings'
-                value = json.loads(settings.get(key, '{}'))
+                value = settings.get(key, {})
+                # Preserve saved overrides from the pre-versioned release.
+                if isinstance(value, str):
+                    value = json.loads(value)
                 if not isinstance(value, dict) or any(not k or not isinstance(v, str) for k, v in value.items()):
                     raise ValueError(f'{key} must be an object of target fields and jq expressions')
                 self.mappings[key] = value

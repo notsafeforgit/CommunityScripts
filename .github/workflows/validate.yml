@@ -6,11 +6,13 @@ on:
     paths:
       - 'plugins/**'
       - 'themes/**'
+      - 'validator/**'
   pull_request:
     branches: [main]
     paths:
       - 'plugins/**'
       - 'themes/**'
+      - 'validator/**'
 
 jobs:
   validate:
@@ -21,4 +23,5 @@ jobs:
       with:
         node-version: '20.x'
     - run: cd ./validator && yarn install --frozen-lockfile
+    - run: node --test ./validator/manifest-v3.test.js
     - run: node ./validate.js --ci

@@ -24,10 +24,11 @@ The reader uses read-only SQLite connections, but live WAL databases may require
 access to their shared-memory files. Preserve the catalog mount and permissions.
 Missing configuration or unreadable databases cause a visible error.
 
-Version 1.1 requires the Stash fork's plugin settings and jq APIs
-(`pluginSettings`, `pluginEvaluateMappings`, `updatePluginSettings`). Upgrade
-Stash before installing this version: older Stash builds reject the extended
-manifest. There is no `ui.entry`; native v3 settings and backend hooks provide
+Version 1.2 declares `apiVersion: 3` and requires the Stash fork's v3 plugin API
+(`pluginSettingsV3`, `pluginEvaluateMappings`, `updatePluginSettingsV3`). It has
+no v2.5 plugin API or UI compatibility requirement. Upgrade Stash before installing
+this version: older Stash builds reject the versioned manifest.
+There is no `ui.entry`; native v3 settings and backend hooks provide
 this plugin's interface. No Python jq package or jq executable is needed at runtime.
 
 Enable **Catalog Metadata**. When replacing the legacy integration, disable
@@ -95,6 +96,9 @@ Each mapping setting is a JSON object whose keys are target fields and whose
 values are jq expressions. **Scene import**, **Image import**, **Scene export**,
 and **Image export** are separate settings. Use the sample-data preview in v3
 before saving expressions. Its input is the complete context object below.
+Mapping settings use native JSON objects in the API and configuration. Saved
+JSON text from version 1.1 is read without losing existing overrides; new saves
+use objects.
 
 Import mappings override the standard importer; an empty object keeps its
 existing behavior. Target any supported `SceneUpdateInput` or `ImageUpdateInput`

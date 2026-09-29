@@ -1,0 +1,350 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "$id": "plugin-v3",
+  "title": "Stash v3 Plugin",
+  "description": "A stash plugin config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "name"
+  ],
+  "properties": {
+    "apiVersion": {
+      "type": "integer",
+      "const": 3
+    },
+    "name": {
+      "title": "Plugin name",
+      "description": "The name of the plugin.",
+      "type": "string"
+    },
+    "description": {
+      "title": "Plugin description",
+      "description": "Short description of the plugin.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "version": {
+      "title": "Plugin version",
+      "description": "Format: x.y.z where x y and z are integers.",
+      "type": [
+        "string",
+        "integer",
+        "number"
+      ],
+      "pattern": "^\\d+(\\.\\d+)?(\\.\\d+)?$"
+    },
+    "url": {
+      "title": "Url",
+      "description": "Optional url",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ui": {
+      "title": "Plugin UI",
+      "description": "Optional files needed to render plugin specific UI",
+      "$ref": "#/definitions/UIConfig"
+    },
+    "exec": {
+      "title": "Command to run the plugin",
+      "description": "For external plugin tasks, the exec field is a list with the first element being the binary that will be executed, and the subsequent elements are the arguments passed. The execution process will search the path for the binary, then will attempt to find the program in the same directory as the plugin configuration file. The exe extension is not necessary on Windows systems.\n\nFor embedded plugins, the exec field is a list with the first element being the path to the Javascript file that will be executed. It is expected that the path to the Javascript file is relative to the directory of the plugin configuration file.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "interface": {
+      "title": "Plugin interface",
+      "description": "For external plugin tasks, the interface field must be set to one of the following values: rpc, raw\n\nFor embedded plugins, the interface field must be set to one of the following values: js\n\nThe interface field defaults to raw if not provided.",
+      "type": "string",
+      "enum": [
+        "js",
+        "raw",
+        "rpc"
+      ],
+      "default": "raw"
+    },
+    "errLog": {
+      "title": "Log level",
+      "description": "Tells stash what the default log level should be when the plugin outputs to stderr without encoding a log level. It defaults to the error level if no provided. This field is not necessary if the plugin outputs logging with the appropriate encoding.",
+      "type": "string",
+      "enum": [
+        "trace",
+        "debug",
+        "info",
+        "warning",
+        "error"
+      ],
+      "default": "raw"
+    },
+    "hooks": {
+      "title": "Hooks configuration",
+      "description": "Array of individual hook configurations.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/HookConfig"
+      }
+    },
+    "tasks": {
+      "title": "Tasks configuration",
+      "description": "Array of individual tasks configurations.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/TaskConfig"
+      }
+    },
+    "settings": {
+      "title": "Plugin settings",
+      "description": "The settings defined for this plugin.",
+      "$ref": "#/definitions/SettingConfig"
+    }
+  },
+  "definitions": {
+    "UIConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requires": {
+          "title": "Required plugins",
+          "description": "Optional list of plugin IDs to load prior to this plugin.",
+          "items": {
+            "description": "Required plugin ID"
+          },
+          "$ref": "#/definitions/StringList",
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "assets": {
+          "title": "Assets",
+          "description": "Optional map of assets.",
+          "type": "object",
+          "patternProperties": {
+            "": {
+              "type": "string",
+              "title": "Asset location",
+              "description": "Asset location on the file system as pair of values urlPrefix: fsLocation."
+            }
+          }
+        },
+        "csp": {
+          "title": "Content-security policy overrides",
+          "description": "Optional map of policy directives",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "script-src": {
+              "$ref": "#/definitions/CspDirective"
+            },
+            "style-src": {
+              "$ref": "#/definitions/CspDirective"
+            },
+            "connect-src": {
+              "$ref": "#/definitions/CspDirective"
+            }
+          }
+        },
+        "entry": {
+          "type": "string",
+          "description": "ESM registration module served by plugin assets; optional for backend-only plugins"
+        }
+      }
+    },
+    "HookConfig": {
+      "type": "object",
+      "required": [
+        "name",
+        "triggeredBy"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Hook name",
+          "minLength": 1
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Optional description for this hook"
+        },
+        "triggeredBy": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TriggerType"
+          },
+          "minItems": 1
+        },
+        "defaultArgs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "execArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "TriggerType": {
+      "type": "string",
+      "enum": [
+        "SceneMarker.Create.Post",
+        "SceneMarker.Update.Post",
+        "SceneMarker.Destroy.Post",
+        "Scene.Create.Post",
+        "Scene.Update.Post",
+        "Scene.Destroy.Post",
+        "Image.Create.Post",
+        "Image.Update.Post",
+        "Image.Destroy.Post",
+        "Gallery.Create.Post",
+        "Gallery.Update.Post",
+        "Gallery.Destroy.Post",
+        "GalleryChapter.Create.Post",
+        "GalleryChapter.Update.Post",
+        "GalleryChapter.Destroy.Post",
+        "Movie.Create.Post",
+        "Movie.Update.Post",
+        "Movie.Destroy.Post",
+        "Group.Create.Post",
+        "Group.Update.Post",
+        "Group.Destroy.Post",
+        "Performer.Create.Post",
+        "Performer.Update.Post",
+        "Performer.Destroy.Post",
+        "Studio.Create.Post",
+        "Studio.Update.Post",
+        "Studio.Destroy.Post",
+        "Tag.Create.Post",
+        "Tag.Update.Post",
+        "Tag.Destroy.Post",
+        "Tag.Merge.Post",
+        "File.Update.Post",
+        "File.Destroy.Post"
+      ]
+    },
+    "TaskConfig": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Task name",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional description for this task"
+        },
+        "defaultArgs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "execArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "SettingConfig": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "enum": [
+              "STRING",
+              "NUMBER",
+              "BOOLEAN",
+              "JSON"
+            ],
+            "default": "STRING"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "default": {},
+          "editor": {
+            "enum": [
+              "TEXT",
+              "TEXTAREA",
+              "SELECT",
+              "JSON",
+              "JQ",
+              "JQ_MAP"
+            ]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value",
+                "label"
+              ],
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "StringList": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "CspDirective": {
+      "description": "Policy directive",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string",
+        "description": "Allowed domain",
+        "examples": [
+          "self",
+          "http://alloweddomain.com",
+          "example.com",
+          "*.example.com"
+        ]
+      }
+    }
+  }
+}
