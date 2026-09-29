@@ -152,7 +152,8 @@ class XmlParser(AbstractParser):
         year = self._nfo_root.findtext("year")
         if year is not None:
             year = f"{year}-01-01"
-        return self._nfo_root.findtext("premiered") or year
+        value = self._nfo_root.findtext("premiered") or year
+        return self._catalog.utc_date(value) if self._catalog else value
 
     def __extract_nfo_tags(self):
         source = getattr(config, "load_tags_from", "both").lower()
