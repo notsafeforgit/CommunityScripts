@@ -259,6 +259,5 @@ class XmlParser(AbstractParser):
             'actors': self._get_default('actors') or [],
             'tags': self._get_default('tags') or [], 'urls': []})
         data.update(metadata)
-        data['title'] = data.get('title') or os.path.splitext(os.path.basename(self._scene_path))[0]
         data['tags'] = sorted(set(data['tags'] + (self._get_default('tags') or [])))
         return data

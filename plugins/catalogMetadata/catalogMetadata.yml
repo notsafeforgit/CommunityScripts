@@ -1,7 +1,7 @@
 apiVersion: 3
 name: Catalog Metadata
 description: Import catalog metadata and map Stash edits back to manual catalog fields
-version: 1.2.0
+version: 1.3.0
 url: https://github.com/notsafeforgit/CommunityScripts/tree/main/plugins/catalogMetadata
 exec:
 - python
@@ -41,6 +41,14 @@ settings:
     type: BOOLEAN
     displayName: Dry run
     default: false
+  filename_title_fallback:
+    type: BOOLEAN
+    displayName: Use filename when title is missing
+    description: >-
+      Use the filename without its extension when imports and the existing Stash title are empty.
+      Includes unmatched scenes and images outside the catalog source.
+      Explicit title mappings and exclusions take precedence.
+    default: true
   skip_organized:
     type: BOOLEAN
     displayName: Skip organized items on creation

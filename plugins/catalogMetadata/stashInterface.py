@@ -4,6 +4,7 @@ import time
 import requests
 import log
 import config
+from catalogMappings import IMPORT_MARKER
 
 
 class StashInterface:
@@ -313,6 +314,19 @@ class StashInterface:
             images_data["images"] = images_list
             images_data["count"] = len(images_list)
         return images_data
+
+    def gql_updateTitle(self, item_type, item_id, title):
+        if item_type not in ('scene', 'image'):
+            raise ValueError(f'Unsupported title target: {item_type}')
+        input_data = {'id': str(item_id), 'title': title, 'clientMutationId': IMPORT_MARKER}
+        if config.dry_mode:
+            log.LogInfo(f'Dry mode. Would update {item_type} title: {json.dumps(input_data)}')
+            return {'id': str(item_id)}
+        mutation = item_type + 'Update'
+        query = f'''mutation($input: {item_type.capitalize()}UpdateInput!) {{
+            {mutation}(input: $input) {{ id }}
+        }}'''
+        return self.__gql_call(query, {'input': input_data}).get(mutation)
 
     def gql_updateScene(self, scene_id, scene_data, map_input=None):
         query = """

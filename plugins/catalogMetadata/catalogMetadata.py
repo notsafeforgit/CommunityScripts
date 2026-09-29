@@ -71,7 +71,7 @@ class CatalogMetadataPlugin:
                 f"Skipping already organized {media_type} id: {entity_id}")
             return
 
-        # Only handle media belonging to the configured catalog source.
+        # Catalog imports are scoped to the source; title fallback is separate.
         try:
             get_reader().relpath(file_path)
         except ValueError:
@@ -117,8 +117,25 @@ class CatalogMetadataPlugin:
 
     # Updates the parsed data into stash db (and creates what is missing)
     def __update(self):
-        # Require usable metadata before updating an entity.
         if not self._file_data:
+            # Do not let a fallback bypass the organized-item import policy.
+            if self._item.get('organized') and config.skip_organized and self._stash.get_mode() != 'reload':
+                return
+            payload = {}
+            self._mappings.apply_title_fallback(
+                self._item_type, self._item, self._get_item_path(self._item_id, self._item_type), payload)
+            title = payload.get('title')
+            if title and title != self._item.get('title'):
+                # Unmatched media needs only a title update, with no relation,
+                # organized-state or other metadata changes.
+                updated = self._stash.gql_updateTitle(self._item_type, self._item_id, title)
+                if config.dry_mode:
+                    return payload
+                if updated and updated.get('id') == str(self._item_id):
+                    log.LogInfo(f'Applied filename title to {self._item_type}: {self._item_id}')
+                else:
+                    log.LogError(f'Error applying filename title to {self._item_type}: {self._item_id}')
+                return payload
             log.LogDebug(
                 "No matching catalog metadata or filename rule: nothing done...")
             return
@@ -462,12 +479,7 @@ class CatalogMetadataPlugin:
                 if vf.get("path"):
                     file_path = vf.get("path")
                     break
-            paths = self._item.get("paths")
-            if isinstance(paths, dict):
-                file_path = file_path or paths.get("image") or paths.get("preview") or paths.get("thumbnail")
-            elif isinstance(paths, list) and paths:
-                primary_path = paths[0] or {}
-                file_path = file_path or primary_path.get("image") or primary_path.get("path")
+            # ImagePaths contains HTTP delivery URLs, not media filenames.
         return file_path
 
     def __process_item(self, item_id: str, item_type: str) -> list:

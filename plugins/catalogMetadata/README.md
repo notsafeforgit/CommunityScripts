@@ -24,7 +24,7 @@ The reader uses read-only SQLite connections, but live WAL databases may require
 access to their shared-memory files. Preserve the catalog mount and permissions.
 Missing configuration or unreadable databases cause a visible error.
 
-Version 1.2 declares `apiVersion: 3` and requires the Stash fork's v3 plugin API
+Version 1.2 and later declare `apiVersion: 3` and require the Stash fork's v3 plugin API
 (`pluginSettingsV3`, `pluginEvaluateMappings`, `updatePluginSettingsV3`). It has
 no v2.5 plugin API or UI compatibility requirement. Upgrade Stash before installing
 this version: older Stash builds reject the versioned manifest.
@@ -60,14 +60,15 @@ independently with the direction setting.
 Exports operate on the item's primary media path, matching the import behavior.
 Default expressions export only fields named by the update hook. Imports carry
 a `clientMutationId` marker so their notifications never become manual edits.
-Updates descended from scene/image creation hooks are also skipped, so Title
-From Filename initialization cannot become a manual catalog override. Unchanged
+Updates descended from scene/image creation hooks are also skipped, so automatic
+initialization cannot become a manual catalog override. Unchanged
 values do not append duplicate edits. Failures are logged as plugin
 errors after the successful Stash operation; hooks do not veto or roll it back.
 
 Expand **Settings → Plugins → Catalog Metadata** to configure sync direction,
-dry run, import exclusions, entity creation, organized policy, name tolerance,
-refresh tag and the four mapping settings. Save changes to persist them in Stash.
+dry run, filename title fallback, import exclusions, entity creation, organized
+policy, name tolerance, refresh tag and the four mapping settings. Save changes
+to persist them in Stash.
 Declared settings use manifest defaults and saved values; `config.py` remains
 the fallback for preferences that are not exposed. Existing declared defaults
 match the previous installation. Preserved XML is interpreted as before.
@@ -86,8 +87,34 @@ Example filename rule:
 }
 ```
 
-The hooks skip media outside `SCRAPE_MEDIA_ROOT`. This plugin does not delete
-media, prune posts, or change backup retention.
+Catalog imports and exports skip media outside `SCRAPE_MEDIA_ROOT`. The optional
+filename title fallback also handles media outside that root. This plugin does
+not delete media, prune posts, or change backup retention.
+
+## Filename title fallback
+
+Version 1.3 adds **Use filename when title is missing**, enabled by default. On
+creation and tagged refresh, title selection follows this order:
+
+1. The explicit import mapping or standard catalog/XML/filename-rule title.
+2. A nonblank title already in Stash.
+3. The primary media filename without its final extension.
+
+The fallback covers scenes and images with no catalog match, including files
+outside the catalog source. It never replaces a nonblank existing title with a
+filename. Unmatched items receive only a title update; other fields, relations
+and organized state are untouched. A real media file path is required.
+
+Explicit `title` mappings remain authoritative: `empty` leaves the title alone,
+and `null` or a blank value is not replaced with a filename. A standard title
+exclusion also disables fallback. Import direction, dry run and the organized
+item policy still apply; tagged refreshes can include organized items. Automatic
+title updates carry the import marker and never become manual catalog overrides.
+
+After updating to 1.3, disable **titleFromFilename** and remove its ID from any
+custom hook order. Catalog Metadata provides the fallback itself. Keeping the
+old plugin enabled would still overwrite existing titles before Catalog Metadata
+runs. No Stash backend update is required beyond the v3 API required by 1.2.
 
 
 ## Field mappings

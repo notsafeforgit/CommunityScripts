@@ -1,5 +1,6 @@
 """Configurable mappings evaluated by Stash's shared jq API."""
 import json
+import os
 
 import config
 import log
@@ -11,8 +12,7 @@ IMPORT_MARKER = 'catalogMetadata:import'
 def is_import_notification(hook):
     if (hook.get('input') or {}).get('clientMutationId') == IMPORT_MARKER:
         return True
-    # Title From Filename runs before the catalog creation hook. Its initial
-    # title must not be promoted into a manual catalog override.
+    # Initialization by any creation hook must not become a manual override.
     return any(parent.get('type') in ('Scene.Create.Post', 'Image.Create.Post')
                for parent in hook.get('parentHooks', []))
 
@@ -49,6 +49,24 @@ class CatalogMappings:
     def has_import_mappings(self, kind):
         return bool(self.mappings[f'{kind}_import_mappings'])
 
+    def apply_title_fallback(self, kind, item, path, payload):
+        # Explicit mappings own the field, including empty/null/blank results.
+        if 'title' in self.mappings[f'{kind}_import_mappings']:
+            return
+        if 'title' in config.blacklist:
+            payload.pop('title', None)
+            return
+        for title in (payload.get('title'), item.get('title')):
+            if isinstance(title, str) and title.strip():
+                payload['title'] = title
+                return
+        if self.settings.get('filename_title_fallback', True) and path:
+            title = os.path.splitext(os.path.basename(path))[0]
+            if title.strip():
+                payload['title'] = title
+                return
+        payload.pop('title', None)
+
     def import_payload(self, kind, item, path, catalog, payload):
         mappings = self.mappings[f'{kind}_import_mappings']
         if 'id' in mappings or 'clientMutationId' in mappings:
@@ -60,6 +78,7 @@ class CatalogMappings:
             for key in mappings:
                 payload.pop(key, None)
             payload.update(mapped)
+        self.apply_title_fallback(kind, item, path, payload)
         payload['id'] = str(item['id'])
         payload['clientMutationId'] = IMPORT_MARKER
         return payload
