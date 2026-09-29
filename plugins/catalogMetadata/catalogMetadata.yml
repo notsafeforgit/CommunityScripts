@@ -1,7 +1,7 @@
 apiVersion: 3
 name: Catalog Metadata
 description: Import catalog metadata and map Stash edits back to manual catalog fields
-version: 1.3.0
+version: 1.3.1
 url: https://github.com/notsafeforgit/CommunityScripts/tree/main/plugins/catalogMetadata
 exec:
 - python
@@ -52,10 +52,19 @@ settings:
   skip_organized:
     type: BOOLEAN
     displayName: Skip organized items on creation
+    description: >-
+      Skip importing when the scene or image is already marked organized in Stash when its creation hook runs.
+      Reads that item's organized flag by its Stash ID; no filename or title matching is involved.
+      Refresh tagged items from catalog includes organized items regardless of this setting.
     default: true
   set_organized_catalog:
     type: BOOLEAN
     displayName: Mark imported items organized
+    description: >-
+      After a catalog or XML import, mark the item organized only if the required metadata is present.
+      By default this requires title, performers, details, date, studio, tags, and cover image.
+      Checks standard import data and folder defaults before custom mappings; an organized mapping can override it.
+      Turning this off does not unmark existing items. Requirements are configured in config.py (set_organized_only_if).
     default: true
   create_missing_performers:
     type: BOOLEAN
@@ -91,14 +100,14 @@ settings:
     type: JSON
     editor: JQ_MAP
     displayName: Scene import mappings
-    description: 'JSON object: Stash update field → jq expression. Input: .catalog (resolved metadata), .observations[].payload
+    description: 'Map each target Stash update field to a jq expression. Input: .catalog (resolved metadata), .observations[].payload
       (source JSON), .stash (current item), .path. Overrides standard imports; empty leaves a field untouched.'
     default: {}
   scene_export_mappings:
     type: JSON
     editor: JQ_MAP
     displayName: Scene export mappings
-    description: 'JSON object: catalog manual field → jq expression. Input also includes .fields (changed Stash
+    description: 'Map each target catalog manual field to a jq expression. Input also includes .fields (changed Stash
       fields), .input, and .settings. Supported targets: title, details, date, director, studio, movie, actors,
       tags, urls. Empty skips; null removes an override and inherits source metadata.'
     default:
@@ -117,14 +126,14 @@ settings:
     type: JSON
     editor: JQ_MAP
     displayName: Image import mappings
-    description: 'JSON object: Stash update field → jq expression. Input: .catalog (resolved metadata), .observations[].payload
+    description: 'Map each target Stash update field to a jq expression. Input: .catalog (resolved metadata), .observations[].payload
       (source JSON), .stash (current item), .path. Overrides standard imports; empty leaves a field untouched.'
     default: {}
   image_export_mappings:
     type: JSON
     editor: JQ_MAP
     displayName: Image export mappings
-    description: 'JSON object: catalog manual field → jq expression. Input also includes .fields (changed Stash
+    description: 'Map each target catalog manual field to a jq expression. Input also includes .fields (changed Stash
       fields), .input, and .settings. Supported targets: title, details, date, director, studio, movie, actors,
       tags, urls. Empty skips; null removes an override and inherits source metadata.'
     default:

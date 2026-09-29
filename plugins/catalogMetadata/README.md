@@ -117,15 +117,45 @@ old plugin enabled would still overwrite existing titles before Catalog Metadata
 runs. No Stash backend update is required beyond the v3 API required by 1.2.
 
 
+## Organized items
+
+**Skip organized items on creation** checks the scene or image that was just
+created. The hook supplies its Stash ID; the plugin loads that item and reads its
+current `organized` flag. It does not search for another item with a matching
+filename, title, hash, or catalog entry. For example, an item created with
+`organized: true`, or marked organized by an earlier creation hook, is skipped.
+A normal new item with `organized: false` is imported. This also governs the
+filename title fallback. **Refresh tagged items from catalog** bypasses the
+check so an intentional refresh can include organized items.
+
+**Mark imported items organized** sets that flag after a catalog or XML import
+only when all fields in `config.py`'s `set_organized_only_if` are present. The
+default requirements are **title, performers, details, date, studio, tags, and
+cover image**. A successful import can therefore leave the item unorganized,
+for example when it has no cover image. Filename-rule imports and filename-only
+title fallbacks do not mark items organized.
+
+The completeness check uses standard import data (including merged existing
+Stash values) and folder defaults, before custom jq mappings are applied.
+Custom mappings do not satisfy that earlier check; an explicit `organized`
+import mapping controls the final value instead. Disabling the checkbox does
+not clear existing organized flags. Tagged refreshes still apply this marking
+policy even though they bypass the skip policy. Ordinary Stash edits trigger
+exports, not another automatic import.
+
 ## Field mappings
 
-Each mapping setting is a JSON object whose keys are target fields and whose
-values are jq expressions. **Scene import**, **Image import**, **Scene export**,
-and **Image export** are separate settings. Use the sample-data preview in v3
-before saving expressions. Its input is the complete context object below.
+**Scene import**, **Image import**, **Scene export**, and **Image export** are
+separate settings. In the current v3 editor, each row has a **Target field** and
+a **jq expression**. Enter expressions directly, including quotes and line
+breaks; no JSON string escaping is needed. Use **Add mapping** for a new target
+and the remove button to delete one. Use the sample-data preview before saving
+expressions. Its input is the complete context object below.
 Mapping settings use native JSON objects in the API and configuration. Saved
 JSON text from version 1.1 is read without losing existing overrides; new saves
-use objects.
+use objects. Update Stash to get the row editor; the plugin's mapping format
+has not changed. Removing every row saves an empty map rather than restoring
+manifest defaults.
 
 Import mappings override the standard importer; an empty object keeps its
 existing behavior. Target any supported `SceneUpdateInput` or `ImageUpdateInput`
@@ -136,31 +166,27 @@ standard import blacklist.
 
 Example import overrides:
 
-```json
-{
-  "title": ".catalog.title // empty",
-  "details": ".observations[-1].payload.content // empty",
-  "director": ".catalog.director // empty",
-  "custom_fields": "{partial: {catalog_author: .observations[-1].payload.author.name}}",
-  "organized": "false"
-}
-```
+| Target field | jq expression |
+| --- | --- |
+| `title` | `.catalog.title // empty` |
+| `details` | `.observations[-1].payload.content // empty` |
+| `director` | `.catalog.director // empty` |
+| `custom_fields` | `{partial: {catalog_author: .observations[-1].payload.author.name}}` |
+| `organized` | `false` |
 
 Export targets are the catalog's supported manual fields: `title`, `details`,
 `date`, `director`, `studio`, `movie`, `actors`, `tags`, `urls`. Relation values
 are names rather than Stash IDs. Any queried Stash field, including
 `custom_fields`, can provide a value for these targets.
 
-Example export overrides (replace the setting's map, so keep other entries if
-wanted):
+Example export rows (keep other default rows if wanted; an empty export map
+disables exports for that entity type):
 
-```json
-{
-  "title": "select(.fields | index(\"title\")) | .stash.title",
-  "details": "select(.fields | index(\"custom_fields\")) | .stash.custom_fields.catalog_caption // empty",
-  "actors": "select(.fields | index(\"performer_ids\")) | [.stash.performers[].name]"
-}
-```
+| Target field | jq expression |
+| --- | --- |
+| `title` | `select(.fields \| index("title")) \| .stash.title` |
+| `details` | `select(.fields \| index("custom_fields")) \| .stash.custom_fields.catalog_caption // empty` |
+| `actors` | `select(.fields \| index("performer_ids")) \| [.stash.performers[].name]` |
 
 Both directions receive:
 

@@ -15,13 +15,16 @@ nfo_location = "with files"
 # If you want to use a custom file name eg. "movie.nfo", set it here.
 custom_nfo_name = ""
 
-# Automatic hooks skip organized entities; an explicit tagged refresh overrides this.
+# Creation imports read the entity's current organized flag by its Stash ID.
+# This does not match filenames or titles. Explicit tagged refreshes bypass it.
 skip_organized = True
 
-# Mark scenes organized after applying catalog or preserved XML metadata.
+# Mark catalog/XML imports organized only when set_organized_only_if is satisfied.
+# Checks standard import data and folder defaults before custom jq mappings;
+# an explicit organized mapping takes precedence. False does not unmark items.
 set_organized_catalog = True
 
-# Fields required before marking a scene organized.
+# Fields required before marking an imported item organized.
 # Possible values: "performers", "studio", "tags", "movie", "title", "details", "date",
 #                  "rating", "urls" and "cover_image"
 set_organized_only_if = ["title", "performers", "details", "date", "studio", "tags", "cover_image"]
