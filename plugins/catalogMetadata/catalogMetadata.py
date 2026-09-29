@@ -11,12 +11,14 @@ from xmlParser import XmlParser
 from reParser import RegExParser
 from stashInterface import StashInterface
 from catalogReader import get_reader
+from catalogMappings import CatalogMappings, is_import_notification
 
 
 class CatalogMetadataPlugin:
 
     def __init__(self, stash):
         self._stash: StashInterface = stash
+        self._mappings = CatalogMappings(stash)
         self._item_id: str = None
         self._item_type: str = None
         self._item: dict = None
@@ -94,6 +96,12 @@ class CatalogMetadataPlugin:
 
         # Catalog metadata is preferred; filename rules provide a fallback.
         self._file_data = nfo_file_data or re_file_data
+        mappings = getattr(self, '_mappings', None)
+        if not self._file_data and mappings and mappings.has_import_mappings(media_type):
+            # Raw source captures can be useful even without a title/description
+            # recognized by the standard catalog projection.
+            self._file_data = dict.fromkeys(('title', 'details', 'date', 'rating', 'studio', 'movie', 'director'))
+            self._file_data.update({'file': file_path, 'source': 'catalog', 'actors': [], 'tags': [], 'urls': []})
         # self.__substitute_file_data()
         return self._file_data
 
@@ -118,18 +126,15 @@ class CatalogMetadataPlugin:
         # Retrieve/create performers, studios, movies,...
         item_data = self.__find_create_item_data()
 
-        if config.dry_mode:
-            log.LogInfo(
-                f"Dry mode. Would have updated {self._item_type} based on: {self.__strip_b64(item_data)}")
-            return item_data
-
         # Update item data from parsed info
         updated_item = None
         if self._item_type == "scene":
-            updated_item = self._stash.gql_updateScene(self._item_id, item_data)
+            updated_item = self._stash.gql_updateScene(self._item_id, item_data, self._map_import)
         elif self._item_type == "image":
-            updated_item = self._stash.gql_updateImage(self._item_id, item_data)
+            updated_item = self._stash.gql_updateImage(self._item_id, item_data, self._map_import)
 
+        if config.dry_mode:
+            return item_data
         if updated_item is not None and updated_item["id"] == str(self._item_id):
             log.LogInfo(
                 f"Successfully updated {self._item_type}: {self._item_id} using '{self._file_data['file']}'")
@@ -137,6 +142,10 @@ class CatalogMetadataPlugin:
             log.LogError(
                 f"Error updating {self._item_type}: {self._item_id} based on: {self.__strip_b64(item_data)}.")
         return item_data
+
+    def _map_import(self, payload):
+        return self._mappings.import_payload(
+            self._item_type, self._item, self._get_item_path(self._item_id, self._item_type), self._file_data, payload)
 
     def __find_create_item_data(self):
         # Lookup and/or create satellite objects in stash database
@@ -544,8 +553,24 @@ class CatalogMetadataPlugin:
             if not item_id:
                 log.LogError(f"{item_type.capitalize()} hook triggered but no item id provided.")
                 return [None, None]
+            hook = self._stash.get_hook_context()
+            if hook.get('type', '').endswith('.Update.Post'):
+                # Avoid reading or writing the catalog for our own import.
+                if is_import_notification(hook):
+                    return None
+                self.__prepare_item(item_id, item_type)
+                if self._item:
+                    path = self._get_item_path(item_id, item_type)
+                    if path:
+                        return self._mappings.export_item(item_type, self._item, path, hook)
+                return None
+            if not self._mappings.importing():
+                return None
             return self.__process_item(item_id, item_type)
         elif self._stash.get_mode() == "reload":
+            if not self._mappings.importing():
+                log.LogInfo('Catalog imports are disabled in plugin settings.')
+                return None
             return self.__process_reload()
         else:
             raise Exception(

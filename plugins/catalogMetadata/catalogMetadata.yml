@@ -1,19 +1,129 @@
 name: Catalog Metadata
-description: Populate scenes and images from scrape-catalog databases, translations, and manual metadata
-version: 1.0.0
+description: Import catalog metadata and map Stash edits back to manual catalog fields
+version: 1.1.0
 url: https://github.com/notsafeforgit/CommunityScripts/tree/main/plugins/catalogMetadata
 exec:
-  - python
-  - "{pluginDir}/catalogMetadata.py"
+- python
+- '{pluginDir}/catalogMetadata.py'
 interface: raw
 hooks:
-  - name: hook_catalogMetadata
-    description: Apply catalog metadata when a scene or image is created
-    triggeredBy:
-      - Scene.Create.Post
-      - Image.Create.Post
+- name: hook_catalogMetadata
+  description: Apply catalog metadata when a scene or image is created
+  triggeredBy:
+  - Scene.Create.Post
+  - Image.Create.Post
+- name: write_catalogMetadata
+  description: Write successful scene and image edits to the catalog
+  triggeredBy:
+  - Scene.Update.Post
+  - Image.Update.Post
 tasks:
-  - name: "Refresh tagged items from catalog"
-    description: Refresh scenes and images tagged _CATALOG_RELOAD, including organized items
-    defaultArgs:
-      mode: reload
+- name: Refresh tagged items from catalog
+  description: Refresh scenes and images tagged _CATALOG_RELOAD, including organized items
+  defaultArgs:
+    mode: reload
+settings:
+  sync_direction:
+    type: STRING
+    editor: SELECT
+    displayName: Sync direction
+    description: Imports run on creation and tagged refresh. Exports run after successful Stash edits.
+    default: both
+    options:
+    - value: both
+      label: Both directions
+    - value: import
+      label: Catalog to Stash
+    - value: export
+      label: Stash to catalog
+  dry_mode:
+    type: BOOLEAN
+    displayName: Dry run
+    default: false
+  skip_organized:
+    type: BOOLEAN
+    displayName: Skip organized items on creation
+    default: true
+  set_organized_catalog:
+    type: BOOLEAN
+    displayName: Mark imported items organized
+    default: true
+  create_missing_performers:
+    type: BOOLEAN
+    displayName: Create missing performers
+    default: false
+  create_missing_studios:
+    type: BOOLEAN
+    displayName: Create missing studios
+    default: false
+  create_missing_tags:
+    type: BOOLEAN
+    displayName: Create missing tags
+    default: false
+  create_missing_movies:
+    type: BOOLEAN
+    displayName: Create missing groups
+    default: false
+  reload_tag:
+    type: STRING
+    displayName: Refresh tag
+    default: _CATALOG_RELOAD
+  levenshtein_distance_tolerance:
+    type: NUMBER
+    displayName: Name matching tolerance
+    default: 2
+  blacklist:
+    type: STRING
+    editor: JSON
+    displayName: Standard import exclusions
+    description: JSON array of standard import fields to exclude. Explicit import mappings take precedence.
+    default: '["rating"]'
+  scene_import_mappings:
+    type: STRING
+    editor: JQ_MAP
+    displayName: Scene import mappings
+    description: 'JSON object: Stash update field → jq expression. Input: .catalog (resolved metadata), .observations[].payload
+      (source JSON), .stash (current item), .path. Overrides standard imports; empty leaves a field untouched.'
+    default: '{}'
+  scene_export_mappings:
+    type: STRING
+    editor: JQ_MAP
+    displayName: Scene export mappings
+    description: 'JSON object: catalog manual field → jq expression. Input also includes .fields (changed Stash
+      fields), .input, and .settings. Supported targets: title, details, date, director, studio, movie, actors,
+      tags, urls. Empty skips; null removes an override and inherits source metadata.'
+    default: "{\n  \"title\": \"select(.fields | index(\\\"title\\\")) | .stash.title | select(type == \\\"string\\\
+      \" and length > 0)\",\n  \"details\": \"select(.fields | index(\\\"details\\\")) | .stash.details | select(type\
+      \ == \\\"string\\\" and length > 0)\",\n  \"date\": \"select(.fields | index(\\\"date\\\")) | .stash.date\
+      \ | select(type == \\\"string\\\" and length > 0)\",\n  \"urls\": \"select(.fields | index(\\\"urls\\\") or\
+      \ index(\\\"url\\\")) | .stash.urls | select(length > 0)\",\n  \"studio\": \"select(.fields | index(\\\"studio_id\\\
+      \")) | .stash.studio.name | select(type == \\\"string\\\" and length > 0)\",\n  \"actors\": \"select(.fields\
+      \ | index(\\\"performer_ids\\\")) | [.stash.performers[].name] | select(length > 0)\",\n  \"tags\": \"select(.fields\
+      \ | index(\\\"tag_ids\\\")) | .settings.reload_tag as $reload | [.stash.tags[].name | select(. != $reload)]\
+      \ | select(length > 0)\",\n  \"director\": \"select(.fields | index(\\\"director\\\")) | .stash.director |\
+      \ select(type == \\\"string\\\" and length > 0)\",\n  \"movie\": \"select(.fields | index(\\\"groups\\\")\
+      \ or index(\\\"movies\\\")) | .stash.groups[0].group.name | select(type == \\\"string\\\" and length > 0)\"\
+      \n}"
+  image_import_mappings:
+    type: STRING
+    editor: JQ_MAP
+    displayName: Image import mappings
+    description: 'JSON object: Stash update field → jq expression. Input: .catalog (resolved metadata), .observations[].payload
+      (source JSON), .stash (current item), .path. Overrides standard imports; empty leaves a field untouched.'
+    default: '{}'
+  image_export_mappings:
+    type: STRING
+    editor: JQ_MAP
+    displayName: Image export mappings
+    description: 'JSON object: catalog manual field → jq expression. Input also includes .fields (changed Stash
+      fields), .input, and .settings. Supported targets: title, details, date, director, studio, movie, actors,
+      tags, urls. Empty skips; null removes an override and inherits source metadata.'
+    default: "{\n  \"title\": \"select(.fields | index(\\\"title\\\")) | .stash.title | select(type == \\\"string\\\
+      \" and length > 0)\",\n  \"details\": \"select(.fields | index(\\\"details\\\")) | .stash.details | select(type\
+      \ == \\\"string\\\" and length > 0)\",\n  \"date\": \"select(.fields | index(\\\"date\\\")) | .stash.date\
+      \ | select(type == \\\"string\\\" and length > 0)\",\n  \"urls\": \"select(.fields | index(\\\"urls\\\") or\
+      \ index(\\\"url\\\")) | .stash.urls | select(length > 0)\",\n  \"studio\": \"select(.fields | index(\\\"studio_id\\\
+      \")) | .stash.studio.name | select(type == \\\"string\\\" and length > 0)\",\n  \"actors\": \"select(.fields\
+      \ | index(\\\"performer_ids\\\")) | [.stash.performers[].name] | select(length > 0)\",\n  \"tags\": \"select(.fields\
+      \ | index(\\\"tag_ids\\\")) | .settings.reload_tag as $reload | [.stash.tags[].name | select(. != $reload)]\
+      \ | select(length > 0)\"\n}"

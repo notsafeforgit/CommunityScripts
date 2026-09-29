@@ -57,6 +57,21 @@ class StashInterface:
     def get_mode(self):
         return self._mode
 
+    def get_hook_context(self):
+        return self._fragment['args'].get('hookContext') or {}
+
+    def gql_pluginSettings(self):
+        result = self.__gql_call('''query {
+            pluginSettings(plugin_id: "catalogMetadata") { values }
+        }''')
+        return result['pluginSettings']['values']
+
+    def gql_evaluateMappings(self, mappings, data):
+        result = self.__gql_call('''query($mappings: Map!, $input: Any) {
+            pluginEvaluateMappings(mappings: $mappings, input: $input)
+        }''', {'mappings': mappings, 'input': data})
+        return result['pluginEvaluateMappings']
+
     def gql_findScene(self, scene_id):
         query = """
         query FindScene($id: ID!, $checksum: String) {
@@ -72,8 +87,25 @@ class StashInterface:
             date
             rating: rating100
             organized
+            code
+            director
+            production_date
+            rating100
+            o_counter
+            resume_time
+            play_duration
+            play_count
+            play_history
+            o_history
+            created_at
+            updated_at
+            custom_fields
+            galleries { id title }
+            groups { group { id name } scene_index }
             files {
+                id
                 path
+                fingerprints { type value }
             }
             studio {
                 ...SlimStudioData
@@ -134,6 +166,16 @@ class StashInterface:
                 date
                 rating: rating100
                 organized
+                code
+                photographer
+                rating100
+                o_counter
+                created_at
+                updated_at
+                custom_fields
+                studio { id name }
+                performers { id name }
+                galleries { id title }
                 paths {
                     image
                 }
@@ -272,7 +314,7 @@ class StashInterface:
             images_data["count"] = len(images_list)
         return images_data
 
-    def gql_updateScene(self, scene_id, scene_data):
+    def gql_updateScene(self, scene_id, scene_data, map_input=None):
         query = """
         mutation sceneUpdate($input: SceneUpdateInput!) {
             sceneUpdate(input: $input) {
@@ -303,13 +345,19 @@ class StashInterface:
                 "movie_id": scene_data["movie_id"],
                 "scene_index": scene_data["scene_index"],
             }
+        if map_input is not None:
+            input_data = map_input(input_data)
+        if config.dry_mode:
+            safe = {key: value for key, value in input_data.items() if key != 'cover_image'}
+            log.LogInfo(f'Dry mode. Would update scene: {json.dumps(safe)}')
+            return {'id': str(scene_id)}
         variables = {
             "input": input_data
         }
         result = self.__gql_call(query, variables)
         return result.get("sceneUpdate")
 
-    def gql_updateImage(self, image_id, image_data):
+    def gql_updateImage(self, image_id, image_data, map_input=None):
         query = """
         mutation imageUpdate($input: ImageUpdateInput!) {
             imageUpdate(input: $input) {
@@ -330,6 +378,11 @@ class StashInterface:
         }
         if image_data.get("organized") is not None:
             input_data.update({"organized": image_data["organized"]})
+        if map_input is not None:
+            input_data = map_input(input_data)
+        if config.dry_mode:
+            log.LogInfo(f'Dry mode. Would update image: {json.dumps(input_data)}')
+            return {'id': str(image_id)}
         variables = {
             "input": input_data
         }
