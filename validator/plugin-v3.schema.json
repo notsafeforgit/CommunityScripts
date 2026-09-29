@@ -316,6 +316,24 @@
                 }
               }
             }
+          },
+          "preview": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "entity"
+            ],
+            "properties": {
+              "entity": {
+                "enum": [
+                  "SCENE",
+                  "IMAGE"
+                ]
+              },
+              "description": {
+                "type": "string"
+              }
+            }
           }
         }
       }

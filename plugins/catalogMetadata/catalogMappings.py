@@ -9,6 +9,23 @@ from catalogReader import get_reader, mapping_context, write_overrides
 IMPORT_MARKER = 'catalogMetadata:import'
 
 
+def preview_update_input(kind, item):
+    """Simulate a metadata edit using current values; this is never submitted."""
+    scalars = ('title', 'details', 'code', 'date', 'urls', 'rating100', 'organized')
+    scalars += ('director', 'production_date', 'resume_time', 'play_duration') if kind == 'scene' else ('photographer',)
+    result = {key: item[key] for key in scalars if key in item}
+    result['id'] = str(item['id'])
+    result['studio_id'] = (item.get('studio') or {}).get('id')
+    for source, target in (('performers', 'performer_ids'), ('tags', 'tag_ids'), ('galleries', 'gallery_ids')):
+        result[target] = [row['id'] for row in item.get(source, [])]
+    if 'custom_fields' in item:
+        result['custom_fields'] = {'full': item['custom_fields']}
+    if kind == 'scene':
+        result['groups'] = [{'group_id': row['group']['id'], 'scene_index': row.get('scene_index')}
+                            for row in item.get('groups', [])]
+    return result
+
+
 def is_import_notification(hook):
     if (hook.get('input') or {}).get('clientMutationId') == IMPORT_MARKER:
         return True
@@ -83,6 +100,11 @@ class CatalogMappings:
         payload['clientMutationId'] = IMPORT_MARKER
         return payload
 
+    def export_context(self, reader, item, path, hook):
+        context = mapping_context(reader, path, item, reader.metadata(path))
+        context.update({'fields': hook.get('inputFields') or [], 'input': hook.get('input') or {}, 'settings': self.settings})
+        return context
+
     def export_item(self, kind, item, path, hook):
         if self.direction not in ('both', 'export'):
             return None
@@ -94,8 +116,7 @@ class CatalogMappings:
         except ValueError:
             log.LogDebug(f'Skipping media outside the catalog source: {path}')
             return None
-        context = mapping_context(reader, path, item, reader.metadata(path))
-        context.update({'fields': hook.get('inputFields') or [], 'input': hook.get('input') or {}, 'settings': self.settings})
+        context = self.export_context(reader, item, path, hook)
         fields = self.stash.gql_evaluateMappings(self.mappings[f'{kind}_export_mappings'], context)
         # Do not turn an unchanged projection into a new manual override. Null
         # explicitly removes an override, so it is compared with overrides only.

@@ -149,8 +149,10 @@ exports, not another automatic import.
 separate settings. In the current v3 editor, each row has a **Target field** and
 a **jq expression**. Enter expressions directly, including quotes and line
 breaks; no JSON string escaping is needed. Use **Add mapping** for a new target
-and the remove button to delete one. Use the sample-data preview before saving
-expressions. Its input is the complete context object below.
+and the remove button to delete one. Use **Preview mappings** before saving expressions. Select a scene or image,
+then **Load entity data** to read its Stash snapshot and catalog context.
+**Test expression** evaluates the current unsaved mappings against that input.
+You can also paste or edit the sample JSON directly.
 Mapping settings use native JSON objects in the API and configuration. Saved
 JSON text from version 1.1 is read without losing existing overrides; new saves
 use objects. Update Stash to get the row editor; the plugin's mapping format
@@ -219,6 +221,47 @@ The shared backend interpreter has bounded execution time and serialized data
 sizes; oversized source payloads return an error. Expressions cannot access the
 server filesystem, environment, or network. Plugin updates themselves use the
 normal Stash and catalog APIs.
+
+## Preview mappings with a library item
+
+Version 1.4 requires a Stash v3 backend with entity preview support. Update
+Stash before installing this plugin version. Each mapping setting offers the
+appropriate scene or image picker; search by title or file path and use the ID
+to distinguish similar entries. The plugin uses the same primary media path as
+its normal import/export hooks to locate catalog evidence.
+
+Previews read Stash and the catalog only. They do not save settings, update
+entities, create performers/studios/tags/groups, append catalog overrides or
+trigger hooks. They work for organized items and either sync direction; those
+settings still control real imports/exports. Missing items or paths, unavailable
+catalogs, media outside the configured source, and oversized contexts report
+errors instead of running an import.
+
+- **Import:** `.catalog` uses the same XML, filename defaults, translations and
+  manual overrides as the normal importer. `.observations` exposes raw captures.
+  An unsaved first mapping works even when the saved map is empty. Results show
+  custom mapped fields only; `{}` does not mean the standard importer would do
+  nothing. Standard imports, title fallback, organized checks and relation
+  resolution/creation are not run by a preview.
+- **Export:** `.catalog` is the current catalog reader projection. `.fields`
+  initially simulates changing the current scalar and relationship fields in
+  `.input`; no real edit has occurred. Edit `.fields` (for example `["title"]`)
+  and `.input` to try a specific event. To simulate a new value, also edit the
+  corresponding `.stash` value, since that represents the post-edit snapshot.
+  `.settings` contains saved settings. Results show jq output before the normal
+  unchanged-value filter and catalog field validation, so a real export may
+  skip a value already present or reject an unsupported target/value.
+
+Editing the sample input changes only the preview. Editing an expression or
+input hides the old result until you test again. **Save** persists mappings;
+preview buttons never do. The Stash HTTP client additionally blocks mutations
+in preview mode, and integration tests check the catalog's data files remain
+unchanged (SQLite's transient shared-memory read locks are excluded).
+
+Stash calls people **performers**. The catalog's normalized manual field is
+`actors`, an array of names; raw observations retain each source's own keys.
+Import relation mappings use `performer_ids` (Stash IDs), while export mappings
+can use target `actors` with `[.stash.performers[].name]`.
 
 ## Validation
 

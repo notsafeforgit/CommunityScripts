@@ -10,8 +10,8 @@ from abstractParser import AbstractParser
 from xmlParser import XmlParser
 from reParser import RegExParser
 from stashInterface import StashInterface
-from catalogReader import get_reader
-from catalogMappings import CatalogMappings, is_import_notification
+from catalogReader import get_reader, mapping_context
+from catalogMappings import CatalogMappings, is_import_notification, preview_update_input
 
 
 class CatalogMetadataPlugin:
@@ -65,7 +65,7 @@ class CatalogMetadataPlugin:
     #         index += 1
 
     # Parses catalog metadata, including preserved XML, with filename fallback.
-    def __parse(self, file_path, organized=False, media_type="scene", entity_id=None):
+    def __parse(self, file_path, organized=False, media_type="scene", entity_id=None, mapping_preview=False):
         if organized and config.skip_organized and self._stash.get_mode() != "reload":
             log.LogInfo(
                 f"Skipping already organized {media_type} id: {entity_id}")
@@ -97,7 +97,7 @@ class CatalogMetadataPlugin:
         # Catalog metadata is preferred; filename rules provide a fallback.
         self._file_data = nfo_file_data or re_file_data
         mappings = getattr(self, '_mappings', None)
-        if not self._file_data and mappings and mappings.has_import_mappings(media_type):
+        if not self._file_data and (mapping_preview or (mappings and mappings.has_import_mappings(media_type))):
             # Raw source captures can be useful even without a title/description
             # recognized by the standard catalog projection.
             self._file_data = dict.fromkeys(('title', 'details', 'date', 'rating', 'studio', 'movie', 'director'))
@@ -558,8 +558,36 @@ class CatalogMetadataPlugin:
             log.LogInfo(
                 f"Scanned {item_count} items. None had the '{config.reload_tag}' tag.")
 
+    def preview(self):
+        """Load jq input only. Never enter import/update, relation creation or export writers."""
+        setting, kind, entity_id = self._stash.get_preview_request()
+        if kind not in ('scene', 'image') or setting not in (
+                f'{kind}_import_mappings', f'{kind}_export_mappings'):
+            raise ValueError('Preview requires a matching scene or image mapping setting')
+        if not isinstance(entity_id, str) or not entity_id.strip():
+            raise ValueError('Preview requires an entity ID')
+        self.__prepare_item(entity_id, kind)
+        if not self._item:
+            raise ValueError(f'{kind.capitalize()} {entity_id} was not found')
+        path = self._get_item_path(entity_id, kind)
+        if not path:
+            raise ValueError(f'{kind.capitalize()} {entity_id} has no usable file path')
+        reader = get_reader()
+        reader.relpath(path)  # Fail clearly outside this catalog's media root.
+        if setting.endswith('_import_mappings'):
+            # Preview also works for organized items and an unsaved first mapping.
+            catalog = self.__parse(path, media_type=kind, entity_id=entity_id, mapping_preview=True)
+            return mapping_context(reader, path, self._item, catalog)
+        simulated_input = preview_update_input(kind, self._item)
+        return self._mappings.export_context(reader, self._item, path, {
+            'inputFields': sorted(key for key in simulated_input if key != 'id'),
+            'input': simulated_input,
+        })
+
     def process(self):
-        if self._stash.get_mode() == "normal":
+        if self._stash.get_mode() == "preview":
+            return self.preview()
+        elif self._stash.get_mode() == "normal":
             item_type = self._stash.get_item_type()
             item_id = self._stash.get_item_id() or self._stash.get_target_id()
             if not item_id:
@@ -600,6 +628,9 @@ if __name__ == '__main__':
     # Start processing: parse file data and update items
     # (+ create missing performer, tag, movie,...)
     stash_interface = StashInterface(fragment)
-    catalogMetadataPlugin = CatalogMetadataPlugin(stash_interface)
-    catalogMetadataPlugin.process()
-    stash_interface.exit_plugin("Successful!")
+    try:
+        catalogMetadataPlugin = CatalogMetadataPlugin(stash_interface)
+        result = catalogMetadataPlugin.process()
+    except Exception as error:
+        stash_interface.exit_plugin(err=str(error))
+    stash_interface.exit_plugin(result if stash_interface.get_mode() == 'preview' else "Successful!")

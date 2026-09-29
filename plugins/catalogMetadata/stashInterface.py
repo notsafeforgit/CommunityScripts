@@ -58,6 +58,10 @@ class StashInterface:
     def get_mode(self):
         return self._mode
 
+    def get_preview_request(self):
+        args = self._fragment['args']
+        return args.get('setting'), args.get('entity_type'), args.get('entity_id')
+
     def get_hook_context(self):
         return self._fragment['args'].get('hookContext') or {}
 
@@ -604,6 +608,10 @@ class StashInterface:
         sys.exit()
 
     def __gql_call(self, query, variables=None):
+        # Preview has a separate call path. Guard all of this client's write
+        # methods as well, so a future refactor cannot silently submit a mutation.
+        if self._mode == 'preview' and not query.lstrip().startswith('query'):
+            raise RuntimeError('GraphQL mutations are disabled during mapping previews')
         # Session cookie for authentication (supports API key for CLI tests)
         graphql_port = str(self._fragment_server["Port"])
         graphql_scheme = self._fragment_server["Scheme"]

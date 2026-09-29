@@ -10,6 +10,8 @@ for (const [name, manifest, expected] of [
   ['v3 native settings', 'apiVersion: 3\nname: Native\nsettings: {mapping: {type: JSON, editor: JQ_MAP, default: {title: .title}}}', true],
   ['v3 browser module', 'apiVersion: 3\nname: Browser\nui: {entry: index.js, assets: {"/": dist}}', true],
   ['v3 backend notifications', 'apiVersion: 3\nname: Hooks\nhooks: [{name: Deleted, triggeredBy: [File.Destroy.Post, Group.Update.Post]}]', true],
+  ['v3 entity preview', 'apiVersion: 3\nname: Preview\nsettings: {mapping: {type: JSON, editor: JQ_MAP, preview: {entity: SCENE}}}', true],
+  ['invalid preview entity', 'apiVersion: 3\nname: Invalid\nsettings: {mapping: {editor: JQ, preview: {entity: OTHER}}}', false],
   ['future version', 'apiVersion: 4\nname: Future', false],
   ['legacy scripts in v3', 'apiVersion: 3\nname: Invalid\nui: {javascript: [old.js]}', false],
   ['native settings without v3', 'name: Invalid\nsettings: {mapping: {displayName: Mapping, type: JSON}}', false],
