@@ -1,15 +1,13 @@
 """Exact performer matching and explicit, auditable creator account links.
 
-Plugin-owned tables live in the catalog registry, so catalog snapshots include
-them. Raw accounts/posts keep their identities; Store.link copies their evidence
-and redirects future writes. Import and preview paths only use Reader.
+Catalog-owned UUIDs and account associations live in the shared registry. Source
+catalogs, routes and media stay separate. Import and preview paths use Reader.
 """
 from collections import defaultdict
 from contextlib import closing
 import json
 import re
 import unicodedata
-from urllib.parse import urlsplit
 
 import log
 
@@ -27,28 +25,13 @@ def names(profile):
 
 
 def profile_ref(url):
-    """Accept profile URLs only; a post URL or shared username proves nothing."""
-    try:
-        parsed = urlsplit(url)
-        host = (parsed.hostname or '').lower()
-        if parsed.scheme not in ('http', 'https') or parsed.username or parsed.password or parsed.port:
-            return None
-    except ValueError:
-        return None
-    host = re.sub(r'^(www|mobile|old|new)\.', '', host)
-    path = parsed.path.rstrip('/')
-    if host in ('twitter.com', 'x.com'):
-        match = re.fullmatch(r'/i/user/(\d+)', path)
-        if match:
-            return 'twitter', 'id', match[1]
-        match = re.fullmatch(r'/([A-Za-z0-9_]{1,15})', path)
-        if match and match[1].lower() not in ('home', 'search', 'explore', 'settings', 'messages', 'notifications', 'intent', 'share', 'login', 'logout', 'signup', 'i'):
-            return 'twitter', 'handle', match[1].lower()
-    if host == 'reddit.com':
-        match = re.fullmatch(r'/(?:user|u)/([A-Za-z0-9_-]{1,32})', path)
-        if match:
-            return 'reddit', 'handle', match[1].lower()
-    return None
+    from scrape_catalog.profiles import profile_ref as resolve_profile
+    return resolve_profile(url)
+
+
+def profile_refs(url):
+    from scrape_catalog.profiles import profile_refs as resolve_profiles
+    return resolve_profiles(url)
 
 
 def namespace(settings):
@@ -65,7 +48,36 @@ def explicit_links(settings):
     return value
 
 
+def registry_state(reader):
+    from scrape_catalog.identities import read_state
+    return read_state(reader.registry)
+
+
+def effective_explicit(reader, settings):
+    # Registry decisions, including deliberate unlinks, supersede legacy JSON.
+    saved = registry_state(reader)['accounts']
+    return {key: pid for key, pid in explicit_links(settings).items() if key not in saved}
+
+
 def saved_links(reader, settings):
+    from scrape_catalog.identities import binding_ids, resolve
+    state = registry_state(reader)
+    if state['migrated']:
+        ns = namespace(settings)
+        profiles = {}
+        for row in state['bindings']:
+            if row['namespace'] == ns:
+                identity_id = resolve(row['identity_id'], state)
+                profiles[row['performer_id']] = {
+                    'profile': merged_profile(row['profile'], [state['identities'][identity_id]['profile']]),
+                    'redirect': row['redirect_to'], 'identity_id': identity_id}
+        bindings = {}
+        for key, row in state['accounts'].items():
+            if row['identity_id']:
+                ids = binding_ids(state, ns, row['identity_id'])
+                if len(ids) == 1:
+                    bindings[key] = next(iter(ids))
+        return profiles, bindings
     tables = {r[0] for r in reader.registry.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     profiles, bindings = {}, {}
     if PROFILES in tables:
@@ -105,7 +117,7 @@ def match_performer(name, performers, reader, path, settings):
     live = {str(p['id']): p for p in performers}
     candidates = {pid for pid, p in live.items() if name_key(name) in names(p)}
     profiles, bindings = saved_links(reader, settings)
-    explicit = explicit_links(settings)
+    explicit = effective_explicit(reader, settings)
     linked = {resolve_id(explicit.get(key, bindings.get(key)), profiles)
               for key in file_accounts(reader, path)}
     linked.discard(None)
@@ -122,19 +134,43 @@ def match_performer(name, performers, reader, path, settings):
 
 
 def catalog_accounts(reader):
-    """Only creator catalogs may join; subreddit/collection catalogs stay separate."""
+    """Accounts remain addressable even inside previously joined catalogs."""
     result = {}
-    for catalog in reader.registry.execute("SELECT id FROM catalogs WHERE kind='creator' AND redirect_to IS NULL ORDER BY id"):
+    profile_urls = defaultdict(list)
+    if reader.registry.execute("SELECT 1 FROM sqlite_master WHERE name='account_profile_urls'").fetchone():
+        for row in reader.registry.execute('SELECT account_key,url FROM account_profile_urls ORDER BY url'):
+            profile_urls[row['account_key']].append(row['url'])
+    directories = defaultdict(set)
+    for route in reader.registry.execute("SELECT route,catalog_id FROM routes WHERE route LIKE 'directory:%'"):
+        suffix = ':' + route['catalog_id']
+        if route['route'].endswith(suffix):
+            directories[route['catalog_id']].add(route['route'][len('directory:'):-len(suffix)])
+    for catalog in reader.registry.execute("SELECT * FROM catalogs WHERE kind='creator' AND redirect_to IS NULL ORDER BY id"):
         cid = catalog['id']
         if not re.fullmatch(r'c_[a-f0-9]{32}', cid):
             raise ValueError('Invalid creator catalog identifier')
         with closing(reader._open(reader.root / 'catalogs' / (cid + '.sqlite3'))) as db:
-            for row in db.execute('SELECT * FROM accounts ORDER BY account_key'):
+            source_accounts = [dict(row) for row in db.execute('SELECT * FROM accounts ORDER BY account_key')]
+            # Inventory-only source folders have a registry owner but no posts
+            # (and therefore no accounts row). Keep that provisional owner
+            # reviewable without fabricating post authors or writing on read.
+            if not source_accounts and catalog['owner_key'].startswith('creator:'):
+                key = catalog['owner_key'][len('creator:'):]
+                separator = ':id:' if ':id:' in key else ':handle:'
+                platform, found, value = key.partition(separator)
+                if found and platform and value:
+                    source_accounts.append({'account_key': key, 'platform': platform,
+                                            'source_id': value if separator == ':id:' else None,
+                                            'identity_basis': 'catalog-owner', 'created_at': catalog['created_at']})
+            for row in source_accounts:
                 key = row['account_key']
                 if key in result:
                     raise ValueError(f'Account {key} belongs to multiple active creator catalogs')
-                result[key] = {**dict(row), 'catalog_id': cid, 'handles': [r[0] for r in db.execute(
-                    'SELECT handle FROM handles WHERE account_key=? ORDER BY handle', (key,))]}
+                handles = [r[0] for r in db.execute('SELECT handle FROM handles WHERE account_key=? ORDER BY handle', (key,))]
+                if row['identity_basis'] == 'catalog-owner' and ':handle:' in key:
+                    handles = [key.partition(':handle:')[2]]
+                result[key] = {**row, 'catalog_id': cid, 'catalog_label': catalog['label'],
+                               'directories': sorted(directories[cid]), 'profile_urls': profile_urls[key], 'handles': handles}
     return result
 
 
@@ -151,9 +187,13 @@ def merged_profile(current, previous):
 
 def plan_links(reader, performers, settings, merge=None, focus=None, accounts=None):
     """Pure plan: profile URLs or explicit stable account keys establish ownership."""
+    from scrape_catalog.identities import resolve, binding_ids
     namespace(settings)
-    explicit = explicit_links(settings)
+    explicit = effective_explicit(reader, settings)
     profiles, bindings = saved_links(reader, settings)
+    state = registry_state(reader)
+    suppressed = {key for key, value in state['accounts'].items() if not value['identity_id']}
+    reviewed = {key for key, value in state['accounts'].items() if value['source'] in ('review', 'migration')}
     live = {str(p['id']): p for p in performers}
     redirects = {}
     previous = []
@@ -177,6 +217,9 @@ def plan_links(reader, performers, settings, merge=None, focus=None, accounts=No
     for key, account in accounts.items():
         if account['source_id']:
             references[(account['platform'], 'id', str(account['source_id']))].add(key)
+        for url in account['profile_urls']:
+            from scrape_catalog.profiles import canonical_url
+            references[('url', 'profile', canonical_url(url))].add(key)
         for handle in account['handles']:
             references[(account['platform'], 'handle', name_key(handle))].add(key)
             handles[name_key(handle)].add(key)
@@ -188,14 +231,20 @@ def plan_links(reader, performers, settings, merge=None, focus=None, accounts=No
     for key, pid in bindings.items():
         if key in accounts:
             owners[key].add(resolve_id(pid, profiles, redirects))
+    for key, association in state['accounts'].items():
+        if key in accounts and association['identity_id']:
+            ids = binding_ids(state, namespace(settings), association['identity_id'])
+            if len(ids) > 1:
+                owners[key].update(resolve_id(pid, profiles, redirects) for pid in ids)
     for pid, profile in combined.items():
         for url in profile.get('urls', []):
-            ref = profile_ref(url)
-            keys = references.get(ref, set())
+            keys = set().union(*(references.get(ref, set()) for ref in profile_refs(url)))
             if len(keys) == 1:
-                owners[next(iter(keys))].add(pid)
+                key = next(iter(keys))
+                if key not in suppressed | reviewed:
+                    owners[key].add(pid)
             elif len(keys) > 1 and pid in focus:
-                unresolved = keys - explicit.keys() - bindings.keys()
+                unresolved = keys - explicit.keys() - bindings.keys() - suppressed - reviewed
                 if unresolved:
                     conflicts.append({'performer_id': pid, 'url': url, 'accounts': sorted(unresolved),
                                       'reason': 'Handle refers to multiple account IDs; specify an explicit account link'})
@@ -205,42 +254,48 @@ def plan_links(reader, performers, settings, merge=None, focus=None, accounts=No
             conflicts.append({'account_key': key, 'performer_id': pid, 'reason': 'Explicit link references an unknown creator account or performer'})
             continue
         owners[key] = {target}
-    # A catalog is already an explicitly joined creator identity. Do not split
-    # it between conflicting performers, or silently absorb someone else's link.
-    catalogs = defaultdict(list)
-    for key, account in accounts.items():
-        catalogs[account['catalog_id']].append(key)
     groups = defaultdict(list)
-    for cid, keys in catalogs.items():
-        choices = set().union(*(owners[key] for key in keys))
+    for key, account in accounts.items():
+        if key in suppressed:
+            continue
+        choices = owners[key]
         if not choices:
             continue
         if len(choices) != 1 or not choices <= live.keys():
-            if choices & focus or any(key in explicit for key in keys):
-                conflicts.append({'catalog_id': cid, 'accounts': keys, 'performer_ids': sorted(choices),
+            if choices & focus or key in explicit or key in bindings:
+                conflicts.append({'catalog_id': account['catalog_id'], 'accounts': [key], 'performer_ids': sorted(choices),
                                   'performers': [{'id': pid, 'name': live.get(pid, {}).get('name'),
                                                   'disambiguation': live.get(pid, {}).get('disambiguation')}
                                                  for pid in sorted(choices)],
-                                  'reason': 'Conflicting or missing performers; no accounts in this catalog were linked'})
+                                  'reason': 'Conflicting or missing performers; this account needs an explicit association'})
             continue
         pid = next(iter(choices))
         if pid in focus:
-            groups[pid].extend(keys)
+            groups[pid].append(key)
     links = []
     for pid, keys in sorted(groups.items()):
         cids = sorted({accounts[key]['catalog_id'] for key in keys})
+        identity_id = profiles.get(pid, {}).get('identity_id')
+        existing_ids = {resolve(state['accounts'][key]['identity_id'], state) for key in keys
+                        if key in state['accounts'] and state['accounts'][key]['identity_id']}
+        if not identity_id and existing_ids:
+            if len(existing_ids) != 1:
+                conflicts.append({'performer_id': pid, 'accounts': sorted(keys),
+                                  'reason': 'Accounts already belong to different catalog performers. Review the individual associations.'})
+                continue
+            identity_id = next(iter(existing_ids))
         # Account handles are historical identity names only within this
         # explicit association, never global Stash aliases or uploader tags.
         combined[pid] = merged_profile(combined[pid], [{'alias_list': [
             handle for key in keys for handle in accounts[key]['handles']]}])
         links.append({'performer_id': pid, 'name': live[pid]['name'], 'accounts': sorted(keys),
-                      'catalogs': cids, 'target_catalog': cids[0]})
+                      'catalogs': cids, 'identity_id': identity_id})
     candidates = []
     for pid in sorted(focus & live.keys()):
         possible = set().union(*(handles[value] for value in names(combined[pid])))
         for key in sorted(possible):
             account = accounts[key]
-            if not owners[key]:
+            if not owners[key] and key not in suppressed and key not in state['accounts']:
                 candidates.append({'performer_id': pid, 'name': live[pid]['name'], 'account_key': key,
                                    'catalog_id': account['catalog_id'], 'handles': account['handles']})
     return {'links': links, 'conflicts': conflicts, 'name_only_candidates': candidates,
@@ -250,48 +305,39 @@ def plan_links(reader, performers, settings, merge=None, focus=None, accounts=No
 
 
 def apply_plan(store, plan, settings):
-    """Caller holds Store.lock; intent is durable before retryable catalog copies."""
+    """One atomic registry transaction; no source catalog copies or redirects."""
+    from scrape_catalog.identities import transaction
     ns = namespace(settings)
-    store.registry.executescript(f'''
-        CREATE TABLE IF NOT EXISTS {PROFILES} (
-            namespace TEXT NOT NULL, performer_id TEXT NOT NULL, profile_json TEXT NOT NULL,
-            redirect_to TEXT, PRIMARY KEY(namespace, performer_id));
-        CREATE TABLE IF NOT EXISTS {BINDINGS} (
-            namespace TEXT NOT NULL, account_key TEXT NOT NULL, performer_id TEXT NOT NULL,
-            PRIMARY KEY(namespace, account_key));
-    ''')
-    store.registry.execute('BEGIN IMMEDIATE')
-    try:
-        # Retain the event even if another Stash merge invalidated our live
-        # query while we waited for the catalog lock. A later sync can replay
-        # the association from these profiles without the deleted Stash rows.
-        for pid, profile in plan['history'].items():
-            store.registry.execute(f'''INSERT INTO {PROFILES} VALUES (?,?,?,NULL)
-                ON CONFLICT(namespace, performer_id) DO UPDATE SET profile_json=excluded.profile_json''',
-                (ns, pid, json.dumps(profile)))
-        for pid, profile in plan['profiles'].items():
-            store.registry.execute(f'INSERT OR REPLACE INTO {PROFILES} VALUES (?,?,?,NULL)', (ns, pid, json.dumps(profile)))
+    with transaction(store) as registry:
+        initial = registry.state()
+        current = {row['performer_id'] for row in initial['bindings'] if row['namespace'] == ns}
+        linked = {link['performer_id']: link for link in plan['links']}
+        # If a Stash merge destination has no catalog UUID yet, keep a source's
+        # existing UUID instead of replacing a known person with a fresh one.
         for source, target in plan['redirects'].items():
-            store.registry.execute(f'''INSERT INTO {PROFILES} VALUES (?,?,?,?)
-                ON CONFLICT(namespace, performer_id) DO UPDATE SET redirect_to=excluded.redirect_to''',
-                (ns, source, '{}', target))
-            store.registry.execute(f'UPDATE {BINDINGS} SET performer_id=? WHERE namespace=? AND performer_id=?', (target, ns, source))
+            source_binding = next((row for row in initial['bindings'] if row['namespace'] == ns and row['performer_id'] == source), None)
+            if source_binding and target not in current:
+                profile = plan['profiles'].get(target) or plan['history'].get(target)
+                registry.ensure_binding(ns, target, profile, identity_id=source_binding['identity_id'])
+                current.add(target)
+        for pid, profile in plan['history'].items():
+            registry.ensure_binding(ns, pid, profile, historical=True)
+        for pid, profile in plan['profiles'].items():
+            preferred = linked.get(pid, {}).get('identity_id')
+            if pid not in current and preferred:
+                registry.bind_existing(ns, pid, preferred, profile)
+            elif pid in current or pid in linked or pid in plan['redirects'].values():
+                registry.ensure_binding(ns, pid, profile)
+        for source, target in plan['redirects'].items():
+            registry.redirect_binding(ns, source, target)
         for link in plan['links']:
+            identity_id = registry.ensure_binding(ns, link['performer_id'], plan['profiles'][link['performer_id']])
+            link['identity_id'] = identity_id
             for key in link['accounts']:
-                store.registry.execute(f'INSERT OR REPLACE INTO {BINDINGS} VALUES (?,?,?)', (ns, key, link['performer_id']))
-        store.registry.commit()
-    except BaseException:
-        store.registry.rollback()
-        raise
-    for link in plan['links']:
-        reason = f"Stash performer {ns}:{link['performer_id']} ({link['name']}): explicit profile/account association"
-        for cid in link['catalogs']:
-            if cid != link['target_catalog']:
-                store.link(cid, link['target_catalog'], reason)
-        target = store.resolve(link['target_catalog'])
-        with store.transaction(target) as db:
-            db.execute("UPDATE catalog_info SET value=? WHERE key='label' AND value<>?", (link['name'], link['name']))
-        store.registry.execute('UPDATE catalogs SET label=? WHERE id=? AND label<>?', (link['name'], target, link['name']))
+                existing = store.registry.execute('SELECT * FROM performer_account_associations WHERE account_key=?', (key,)).fetchone()
+                if existing and existing['source'] in ('review', 'migration'):
+                    continue
+                registry.associate(key, identity_id, 'sync', f"Stash profile association {ns}:{link['performer_id']}")
 
 
 def sync_links(reader, stash, settings, hook=None, preview=False):

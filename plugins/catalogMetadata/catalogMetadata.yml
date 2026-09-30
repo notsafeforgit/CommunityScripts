@@ -1,7 +1,7 @@
 apiVersion: 3
 name: Catalog Metadata
 description: Import catalog metadata and map Stash edits back to manual catalog fields
-version: 1.6.0
+version: 1.7.0
 url: https://github.com/notsafeforgit/CommunityScripts/tree/main/plugins/catalogMetadata
 exec:
 - python
@@ -14,13 +14,13 @@ ui:
 operations:
   list_reviews:
     kind: QUERY
-    description: List creator account evidence, performer candidates and conflicts without writes
+    description: List source accounts, catalog performer UUIDs, profile evidence and conflicts without writes
   review_link:
     kind: QUERY
-    description: Preview all catalogs affected by an explicit performer choice without writes
+    description: Preview one account association, unlink or Stash binding without writes
   apply_link:
     kind: MUTATION
-    description: Recheck and apply one reviewed performer association and catalog merge
+    description: Recheck and atomically apply one reviewed registry association; source catalogs stay separate
 hooks:
 - name: hook_catalogMetadata
   description: Apply catalog metadata when a scene or image is created
@@ -33,7 +33,7 @@ hooks:
   - Scene.Update.Post
   - Image.Update.Post
 - name: sync_performer_catalogs
-  description: Preserve performer identity and join explicitly associated creator accounts
+  description: Preserve catalog performer UUIDs, merge history and source account associations
   triggeredBy:
   - Performer.Merge.Post
   - Performer.Update.Post
@@ -72,18 +72,18 @@ settings:
     type: BOOLEAN
     displayName: Sync performer identities to catalogs
     description: >-
-      After performer merges or identity edits, join creator catalogs associated through Twitter/X or Reddit
-      profile URLs and explicit account links. Preserves source account IDs, posts, aliases and raw evidence.
-      Requires Stash-to-catalog sync. Shared media and matching names alone never join catalogs.
+      Maintain catalog-owned performer UUIDs after Stash merges or identity edits. Match Twitter/X, Reddit,
+      Instagram, Bluesky, TikTok, Coomer/Kemono service accounts and captured profile URLs from other extractors.
+      Accounts, source catalogs and folders stay separate. Names alone require review. Requires Stash-to-catalog sync.
     default: true
   performer_account_links:
     type: JSON
     editor: JSON
-    displayName: Performer account links
+    displayName: Legacy performer account links
     description: >-
       Map stable catalog account keys to Stash performer ID strings, for example {"twitter:id:12345":"42","reddit:id:t2_abc":"42"}.
-      Overrides ambiguous profile URLs and disambiguates performer names within those accounts on import.
-      The Catalog review page lets you choose performers and preview/apply links without editing this JSON.
+      Used to import associations from earlier plugin versions. Registry decisions, including intentional unlinks,
+      take precedence. Manage new links, reassignments and unlinks on the Catalog review page.
     default: {}
   performer_link_namespace:
     type: STRING

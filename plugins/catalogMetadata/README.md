@@ -31,8 +31,9 @@ Version 1.2 and later declare `apiVersion: 3` and require the Stash fork's v3 pl
 (`pluginSettingsV3`, `pluginEvaluateMappings`, `updatePluginSettingsV3`). It has
 no v2.5 plugin API or UI compatibility requirement. Upgrade Stash before installing
 this version: older Stash builds reject the versioned manifest.
-There is no `ui.entry`; native v3 settings and backend hooks provide
-this plugin's interface. No Python jq package or jq executable is needed at runtime.
+Version 1.7 requires `scrape-catalog` 0.2.0 or later for catalog-owned performer
+UUIDs. Its `ui.entry` provides Catalog review through the shared v3 UI host.
+No Python jq package or jq executable is needed at runtime.
 
 Enable **Catalog Metadata**. When replacing the legacy integration, disable
 **nfoFileParser** in Stash and replace its ID with `catalogMetadata` in any custom
@@ -284,87 +285,108 @@ joined catalog is insufficient. If two linked performers still match the same
 name on that file, it remains ambiguous. An uploader is not automatically added
 as a depicted performer: the imported metadata must already name that person.
 
-With **Sync performer identities to catalogs** enabled and an export-capable
-sync direction, successful Stash performer merges and identity edits also update
-catalog identities. Association comes from Twitter/X or Reddit **profile URLs**
-on the performers, or from **Performer account links**. Several accounts on the
-same service work the same way as accounts across services. Post URLs, shared
-files/hashes and names alone do not establish an association. A username found
-under multiple stable account IDs requires an explicit choice; duplicate URLs
-on different Stash performers are also reported as conflicts.
+## Catalog-owned performer identities
+
+Version 1.7 gives each linked performer a random UUID owned by the catalog
+registry. Names, aliases, source accounts and Stash IDs are attributes and
+associations. A rename preserves the UUID. A Stash merge retains the destination
+UUID and redirects source UUIDs and former Stash IDs to it, keeping their aliases
+and profile evidence. If the destination has no UUID yet, an existing source
+UUID is retained. All source catalogs and download directories stay separate.
+
+`registry.sqlite3` stores `performer_identities`, `performer_identity_bindings`,
+`performer_account_associations`, and append-only `performer_identity_events`.
+Normal catalog snapshots include all of them. The library owns this data; it
+survives plugin removal and is readable without Stash. Source account keys,
+captured observations, item metadata overrides and media paths are preserved.
+
+**Performer link namespace** identifies the Stash library, not a person. Keep it
+when restoring that database; choose a different namespace for another or rebuilt
+library. In **Catalog performers**, **Link Stash performer** can bind an existing
+catalog UUID to a performer in that library. It rejects conflicting current
+bindings instead of silently combining different UUIDs.
+
+The first write migrates previously saved plugin links, aliases and redirects
+into these catalog-owned tables, in the same registry transaction as the action.
+It is idempotent and retains the old tables for inspection. Read-only imports and
+previews do not run migrations. An administrator can migrate existing saved links
+without syncing additional proposals:
+
+```sh
+scrape-catalog migrate-performer-identities          # read-only preview
+scrape-catalog migrate-performer-identities --apply  # registry-only migration
+scrape-catalog performer-identities                 # read-only UUIDs and bindings
+```
+
+Older physical catalog merges are kept readable. Accounts in those catalogs can
+now be assigned separately; migration does not attempt to reverse historical
+copies or move media. Future plugin operations never call the physical catalog
+merge API. **Legacy performer account links** remains an import source for old
+settings. Reviewed registry choices, including intentional unlinks, take
+precedence; use the review screen to manage new associations.
+
+## Profile matching
+
+With **Sync performer identities to catalogs** enabled and an export-capable sync
+direction, performer edits/merges update the catalog identity registry. The sync
+recognizes Twitter/X, Reddit, Instagram, Bluesky (DID or handle), TikTok, Tumblr,
+OnlyFans, Fansly, Patreon and Coomer/Kemono profile URLs. Mirror links use the
+upstream service plus user identifier: Patreon user 123 and Fansly user 123 are
+separate accounts. Supported mirror domain variants follow the gallery-dl URL
+shapes, and service names are not restricted to a fixed list.
+
+Other gallery-dl extractors can match exact profile URLs explicitly present in
+captured author metadata. The catalog records these in `account_profile_urls`;
+this does not require the gallery-dl package or a network request inside Stash.
+Generic nested author/user/owner objects are supported. A feed/download URL or a
+bio website is not assumed to identify its author. Older observations without
+profile evidence remain available for explicit review. Extractors that do not
+provide an author identity/profile URL need a manual account association.
+
+Matching names alone produces review candidates. Reused handles, multiple Stash
+performers claiming an account, and ambiguous imported performer names require an
+explicit choice. Being the source account owner does not automatically tag that
+person as depicted in every scene or image.
 
 ## Catalog review page
 
-Update Stash before installing **Catalog Metadata 1.6**, then reload the UI.
-Open **Catalog review** from the navigation menu, or **Settings → Plugins →
-Catalog Metadata → Open Catalog review**. This first review page covers account
-links and performer conflicts. Scene/image jq previews remain in plugin settings.
+Update the catalog library before installing **Catalog Metadata 1.7**, then
+reload the Stash UI. Open **Catalog review** from navigation or **Settings →
+Plugins → Catalog Metadata → Open Catalog review**. Scene/image jq previews remain
+in plugin settings.
 
-1. Filter or search the creator catalogs. **Conflicting links** identifies
-   competing performers or reused handles; **Name or alias match** is a candidate
-   requiring an explicit choice; **Ready to review** has profile/link evidence.
-   **Linked** has already been synchronized. **No match** is available in the
-   Show filter for manually linking an account without matching names or URLs.
-2. Choose **Review** to inspect the account keys and evidence. Search for a Stash
-   performer by name, alias, profile URL, disambiguation or ID. The picker displays
-   IDs and disambiguation so duplicate names can be distinguished.
-3. Choose **Preview link**. The selection applies to every account in that creator
-   catalog. The preview lists the destination and any other catalogs already
-   associated with the selected performer that will be merged into it. Review
-   all of them before continuing; an already joined catalog cannot be split.
-4. Choose **Apply reviewed link**. Only that reviewed performer association is
-   applied. Other candidates and conflicts remain for review. The selected account
-   choices are saved in **Performer account links**, so imports can disambiguate
-   names on captured posts from those accounts. Existing scenes/images are not
-   automatically re-imported; use tagged refresh when wanted.
+**Source accounts** lists individual accounts, their source folders and matching
+evidence. Unlabeled catalog hashes are no longer presented as additional entities;
+**Show source identifiers** reveals the account key and source catalog ID.
 
-Opening the page, changing a selection and previewing are read-only. Apply is
-disabled by dry run, an import-only sync direction, or disabled performer identity
-sync. The backend rechecks settings, performers and catalog identities under the
-catalog writer lock. Changed data requires a new preview. Stash and the catalog
-are separate stores, so this is not a distributed transaction: explicit choices
-are saved before catalog copies, and an interrupted copy can be previewed and
-retried. Background sync reloads saved choices after obtaining the same lock.
-Applied catalog merges preserve evidence but cannot be undone by clearing a
-setting. Missing account/performer references are displayed for correction in
-the advanced **Performer account links** setting.
+1. Filter/search accounts. **Conflicting links** indicates competing evidence;
+   **Name or alias match** needs a decision; **Ready to review** has profile/link
+   evidence. **All accounts** includes unmatched and intentionally unlinked items.
+2. Choose **Review**, then choose a **Stash performer** or an existing **Catalog
+   performer**. The Stash choice creates a UUID only if that performer has none.
+3. **Preview link** shows the single account being changed, its previous owner,
+   the destination UUID or proposed UUID creation, and accounts already associated
+   with that performer. Other accounts are not automatically swept into this action.
+4. **Apply reviewed link** saves that association. **Preview unlink** and **Apply
+   reviewed unlink** remove one account association and persist an explicit opt-out
+   so automatic profile matching cannot immediately recreate it. Linking it again
+   is an explicit choice. An empty identity remains available with the same UUID.
 
-The task-based workflow is also available:
+**Catalog performers** presents a unified view of each performer’s accounts,
+aliases, Stash bindings and source folders. **Manage account** reassigns/unlinks
+one account without merging or splitting the source databases.
 
-1. Add each account's profile URL to the appropriate Stash performer, or run
-   **Preview performer catalog links** to see name-only candidates and account
-   keys in the task log. Preview is read-only, regardless of sync direction.
-2. Resolve ambiguous cases with **Performer account links**, a native JSON
-   object mapping account keys to Stash performer ID strings. For example:
+Browsing and previewing are read-only. Apply honors dry run, sync direction and
+identity-sync settings. It rechecks current data after obtaining the writer lock,
+rejects stale previews, and commits the identity, binding, association and audit
+event together in one registry transaction. It performs no Stash mutation.
 
-   ```json
-   {
-     "twitter:id:12345": "42",
-     "reddit:id:t2_abc": "42"
-   }
-   ```
-
-3. Save the setting, preview again, then run **Sync performer catalog links**.
-   It honors dry run and sync direction. This also reconciles accounts added to
-   the catalog since the last performer edit. Removing a setting does not undo
-   an association already applied to the catalog.
-
-The sync joins creator catalogs using the catalog's existing audited link
-operation, labels the joined catalog with the canonical Stash name, and retains
-original account IDs, handles, posts, raw observations and source databases.
-Subreddit collection catalogs stay separate. No media files are renamed or
-deleted. The merge hook includes the original profiles before Stash removes
-them, so discarded source aliases and URLs remain available as identity evidence.
-Old name strings in captured/manual metadata are preserved and can resolve via
-the stored identity; the plugin does not rewrite historical captures.
-
-Identity records and account bindings are stored in plugin-owned tables in
-`registry.sqlite3`, included in normal catalog snapshots. **Performer link
-namespace** scopes IDs to this Stash database; choose a different value when
-connecting a different Stash database. The first actual sync creates these
-tables; previews and imports do not. Failed links can be retried with the sync
-task. Hooks run after Stash commits, so a catalog failure is logged and cannot
-roll back the Stash merge.
+The **Preview performer catalog links** and **Sync performer catalog links** tasks
+remain available for profile-based proposals and synchronization, including new
+accounts discovered since the last performer edit. Explicit review decisions take
+precedence. Existing scenes/images are not automatically re-imported; use tagged
+refresh when needed. Hooks run after Stash commits, so a catalog failure is logged
+and cannot undo the completed Stash operation.
 
 ## Validation
 

@@ -8,7 +8,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const host = process.env.STASH_UI_ROOT;
 if (!host)
-  throw new Error("Set STASH_UI_ROOT to a Stash ui/v3 checkout with dependencies installed");
+  throw new Error(
+    "Set STASH_UI_ROOT to a Stash ui/v3 checkout with dependencies installed",
+  );
 const requireHost = createRequire(path.join(host, "package.json"));
 const { createServer } = await import(pathToFileURL(requireHost.resolve("vite")).href);
 const { default: tailwindcss } = await import(
@@ -22,7 +24,10 @@ try {
   const source = (await readFile(path.join(here, "fixture.jsx"), "utf8"))
     .replace("__CATALOG_ENTRY__", path.resolve(here, "../index.js"))
     .replaceAll("../src/", `${host}/src/`)
-    .replace("../tests/browser/fixture/style.css", `${host}/tests/browser/fixture/style.css`);
+    .replace(
+      "../tests/browser/fixture/style.css",
+      `${host}/tests/browser/fixture/style.css`,
+    );
   await writeFile(path.join(fixture, "fixture.jsx"), source);
   await writeFile(
     path.join(fixture, "index.html"),
@@ -33,7 +38,9 @@ try {
     root: fixture,
     base: "/stash/",
     plugins: [tailwindcss()],
-    resolve: { alias: { "@": path.join(host, "src"), src: path.join(host, "src") } },
+    resolve: {
+      alias: { "@": path.join(host, "src"), src: path.join(host, "src") },
+    },
     server: {
       host: "127.0.0.1",
       port: 3028,
@@ -49,10 +56,9 @@ try {
   await page.goto("http://127.0.0.1:3028/stash/catalogMetadata/review?fail-list");
   await expect(page.getByText("Could not load catalog reviews")).toBeVisible();
   await page.getByRole("button", { name: "Retry", exact: true }).click();
-  await expect(page.getByRole("link", { name: "Plugin settings", exact: true })).toHaveAttribute(
-    "href",
-    "/stash/settings/plugins",
-  );
+  await expect(
+    page.getByRole("link", { name: "Plugin settings", exact: true }),
+  ).toHaveAttribute("href", "/stash/settings/plugins");
   await page.getByRole("button", { name: "Review account", exact: true }).click();
   await expect(page.getByText("Multiple performers match this account.")).toBeVisible();
   const picker = page.getByRole("combobox", { name: "Stash performer" });
@@ -60,7 +66,7 @@ try {
   await page.getByRole("option", { name: /Sam \(Second person\)/ }).click();
   await page.getByRole("button", { name: "Preview link", exact: true }).click();
   await expect(page.getByRole("region", { name: "Proposed changes" })).toContainText(
-    "reddit:id:t2_20",
+    "reddit: elsewhere",
   );
   assert.equal(
     await page.evaluate(
@@ -75,7 +81,11 @@ try {
   await expect(page.getByRole("button", { name: "Apply reviewed link" })).toHaveCount(0);
   await page.getByRole("button", { name: "Preview link", exact: true }).click();
   await page.getByRole("button", { name: "Apply reviewed link" }).click();
-  await expect(page.getByText("Linked 2 accounts and merged 1 catalogs.")).toBeVisible();
+  await expect(
+    page.getByText(
+      "Account linked to the catalog performer. Source catalogs remain separate.",
+    ),
+  ).toBeVisible();
   assert.equal(
     await page.evaluate(
       () => window.reviewRequests.filter((r) => r.name === "PluginMutationV3").length,
@@ -85,6 +95,47 @@ try {
   assert.ok(
     await page.evaluate(() =>
       window.reviewRequests.every((r) => r.plugin_id === "catalogMetadata"),
+    ),
+  );
+  await page.getByRole("tab", { name: /Catalog performers/ }).click();
+  await expect(page.getByText("2 associated accounts")).toBeVisible();
+  await expect(
+    page.getByText("7c8c6ed6-a995-4f73-86ba-5db62af7d1e2", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Manage account", exact: true }).first().click();
+  await page.getByRole("button", { name: "Preview unlink", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Proposed changes" })).toContainText(
+    "Automatic profile matching will leave it unlinked",
+  );
+  assert.equal(
+    await page.evaluate(
+      () => window.reviewRequests.filter((r) => r.name === "PluginMutationV3").length,
+    ),
+    2,
+  );
+  await page.getByRole("button", { name: "Apply reviewed unlink" }).click();
+  await expect(
+    page.getByText("Account unlinked. Automatic matching will respect this choice."),
+  ).toBeVisible();
+  await expect(page.getByText("1 associated account")).toBeVisible();
+  await page.getByRole("button", { name: "Link Stash performer", exact: true }).click();
+  await picker.fill("Second person");
+  await page.getByRole("option", { name: /Sam \(Second person\)/ }).click();
+  await page.getByRole("button", { name: "Preview link", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Proposed changes" })).toContainText(
+    "7c8c6ed6-a995-4f73-86ba-5db62af7d1e2",
+  );
+  assert.equal(
+    await page.evaluate(
+      () => window.reviewRequests.filter((r) => r.name === "PluginMutationV3").length,
+    ),
+    3,
+  );
+  assert.ok(
+    await page.evaluate(() =>
+      window.reviewRequests
+        .filter((r) => r.operation === "review_link")
+        .every((r) => !r.input.catalog_id),
     ),
   );
   await page.setViewportSize({ width: 390, height: 844 });
@@ -98,7 +149,10 @@ try {
     await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
     "Mobile page overflows",
   );
-  await page.screenshot({ path: "/tmp/catalog-review-mobile.png", fullPage: true });
+  await page.screenshot({
+    path: "/tmp/catalog-review-mobile.png",
+    fullPage: true,
+  });
   await picker.fill("First person");
   await page.getByRole("option", { name: /Sam \(First person\)/ }).click();
   await expect(page.getByRole("region", { name: "Proposed changes" })).toHaveCount(0);
@@ -110,11 +164,14 @@ try {
   );
   assert.deepEqual(errors, []);
   console.log(
-    "Catalog review browser checks passed: shared host, evidence, explicit apply, retry, stale preview, dry run, mobile, base path.",
+    "Catalog review browser checks passed: separate sources, UUID groups, individual link/unlink, binding preview, stale preview, dry run, mobile, base path.",
   );
 } catch (error) {
   if (page) {
-    await page.screenshot({ path: "/tmp/catalog-review-failure.png", fullPage: true });
+    await page.screenshot({
+      path: "/tmp/catalog-review-failure.png",
+      fullPage: true,
+    });
     console.error(
       await page.evaluate(() => ({
         styles: [...document.styleSheets].map((s) => s.href),

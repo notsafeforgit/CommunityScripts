@@ -37,11 +37,19 @@ function register(host) {
     SelectContent,
     SelectGroup,
     SelectItem,
-    Spinner
+    Spinner,
+    Tabs,
+    TabsList,
+    TabsTrigger,
+    TabsContent
   } = host.ui;
   const { Link } = host.router;
-  const msg = (id, defaultMessage, values) => host.intl.formatMessage({ id: `catalogMetadata.review.${id}`, defaultMessage }, values);
+  const msg = (id, defaultMessage, values) => host.intl.formatMessage(
+    { id: `catalogMetadata.review.${id}`, defaultMessage },
+    values
+  );
   const personLabel = (p) => `${p.name}${p.disambiguation ? ` (${p.disambiguation})` : ""} \xB7 #${p.id}`;
+  const identityLabel = (p) => `${p.name} \xB7 ${p.id}`;
   const errorMessage = (error) => error instanceof Error ? error.message : String(error);
   const statusLabel = (status) => ({
     attention: msg("attention", "Needs review"),
@@ -50,22 +58,57 @@ function register(host) {
     proposed: msg("proposed", "Ready to review"),
     linked: msg("linked", "Linked"),
     unmatched: msg("unmatched", "No match"),
-    all: msg("all", "All catalogs")
+    unlinked: msg("unlinked", "Intentionally unlinked"),
+    all: msg("all_accounts", "All accounts")
   })[status];
-  function Account({ account, performers }) {
-    return /* @__PURE__ */ React.createElement("div", { className: "catalog-review-account" }, /* @__PURE__ */ React.createElement("div", { className: "catalog-review-line" }, /* @__PURE__ */ React.createElement(Badge, { variant: "secondary" }, account.platform), /* @__PURE__ */ React.createElement("strong", null, account.handles.join(", ") || account.source_id)), /* @__PURE__ */ React.createElement("code", null, account.account_key), account.evidence?.length > 0 && /* @__PURE__ */ React.createElement("ul", { className: "catalog-review-evidence" }, account.evidence.map((item, index) => {
+  function Source({ account }) {
+    const [details, setDetails] = useState(false);
+    return /* @__PURE__ */ React.createElement("div", { className: "catalog-review-stack" }, /* @__PURE__ */ React.createElement("p", null, msg("folders", "Source folders: {folders}", {
+      folders: account.directories?.join("; ") || msg("folder_unknown", "No folder recorded")
+    })), account.identity_basis === "catalog-owner" && /* @__PURE__ */ React.createElement("p", null, msg(
+      "inventory_owner",
+      "Files are inventoried, but post metadata has not been captured. This account comes from the recorded source folder owner."
+    )), !account.source_id && /* @__PURE__ */ React.createElement("p", null, msg(
+      "handle_only",
+      "Identified by username; a platform account ID has not been captured."
+    )), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(
+      Button,
+      {
+        type: "button",
+        variant: "ghost",
+        size: "sm",
+        onClick: () => setDetails(!details),
+        "aria-expanded": details
+      },
+      details ? msg("hide_details", "Hide source identifiers") : msg("show_details", "Show source identifiers")
+    )), details && /* @__PURE__ */ React.createElement("div", { className: "catalog-review-stack", "data-selectable-text": true }, /* @__PURE__ */ React.createElement("p", null, msg("account_key", "Account key"), ": ", /* @__PURE__ */ React.createElement("code", null, account.account_key)), /* @__PURE__ */ React.createElement("p", null, msg("source_catalog", "Source catalog ID"), ":", " ", /* @__PURE__ */ React.createElement("code", null, account.catalog_id))));
+  }
+  function Evidence({ account, performers }) {
+    return /* @__PURE__ */ React.createElement(Card, { size: "sm" }, /* @__PURE__ */ React.createElement(CardHeader, null, /* @__PURE__ */ React.createElement(CardTitle, { className: "catalog-review-line" }, /* @__PURE__ */ React.createElement(Badge, { variant: "secondary" }, account.platform), account.handles.join(", ") || account.source_id), /* @__PURE__ */ React.createElement(CardDescription, null, account.identity_name ? msg("owned_by", "Catalog performer: {name}", {
+      name: account.identity_name
+    }) : msg("source_account", "Source account"))), /* @__PURE__ */ React.createElement(CardContent, { className: "catalog-review-stack" }, /* @__PURE__ */ React.createElement(Source, { account }), account.evidence?.length > 0 && /* @__PURE__ */ React.createElement("ul", { className: "catalog-review-evidence" }, account.evidence.map((item, index) => {
       const p = performers.find((person) => person.id === item.performer_id);
       const kind = {
-        explicit_link: msg("explicit", "Explicit account link"),
+        explicit_link: msg("legacy_link", "Previously configured link"),
         saved_link: msg("saved", "Saved catalog link"),
         profile_url: msg("profile", "Performer profile URL"),
         name_only: msg("name_only", "Name or alias only; review required")
       }[item.kind];
       return /* @__PURE__ */ React.createElement("li", { key: `${item.kind}:${item.performer_id}:${index}` }, /* @__PURE__ */ React.createElement("span", null, kind, ": ", p ? personLabel(p) : `#${item.performer_id}`), item.url && /* @__PURE__ */ React.createElement("a", { href: item.url, target: "_blank", rel: "noreferrer" }, item.url), item.ambiguous && /* @__PURE__ */ React.createElement("span", null, msg("reused", "This handle appears on multiple account IDs.")));
-    })));
+    }))));
   }
-  function ReviewPanel({ row, performers, onClose, onApplied, onBusy }) {
-    const initial = row.status === "conflict" ? null : performers.find((p) => p.id === row.performer_id) ?? null;
+  function ReviewPanel({
+    row,
+    identity,
+    identities,
+    performers,
+    onClose,
+    onApplied,
+    onBusy
+  }) {
+    const binding = !!identity;
+    const initialKind = row?.identity_id && !row?.performer_id ? "catalog" : "stash";
+    const initial = initialKind === "catalog" ? identities.find((p) => p.id === row.identity_id) ?? null : performers.find((p) => p.id === row?.performer_id) ?? null;
     const [search, setSearch] = useState("");
     const [preview, setPreview] = useState(null);
     const [pending, setPending] = useState(null);
@@ -79,33 +122,43 @@ function register(host) {
         alive.current = false;
       };
     }, []);
+    async function previewChoice(choice) {
+      setPending("preview");
+      onBusy(true);
+      setError(null);
+      setPreview(null);
+      try {
+        const next = await host.operations.query("review_link", choice);
+        if (alive.current) setPreview(next);
+      } catch (error2) {
+        if (alive.current) setError(errorMessage(error2));
+      } finally {
+        if (alive.current) {
+          setPending(null);
+          onBusy(false);
+        }
+      }
+    }
     const form = useForm({
-      defaultValues: { performer: initial },
+      defaultValues: { kind: initialKind, target: initial },
       validators: {
         onChange: z.object({
-          performer: z.object({ id: z.string().min(1) }).nullable().refine(Boolean, msg("choose", "Choose a performer."))
+          kind: z.enum(["stash", "catalog"]),
+          target: z.object({ id: z.string().min(1) }).nullable().refine(Boolean, msg("choose", "Choose a performer."))
         })
       },
       onSubmit: async ({ value }) => {
-        if (!value.performer) return;
-        setPending("preview");
-        onBusy(true);
-        setError(null);
-        setPreview(null);
-        try {
-          const next = await host.operations.query("review_link", {
-            catalog_id: row.catalog_id,
-            performer_id: value.performer.id
-          });
-          if (alive.current) setPreview(next);
-        } catch (error2) {
-          if (alive.current) setError(errorMessage(error2));
-        } finally {
-          if (alive.current) {
-            setPending(null);
-            onBusy(false);
-          }
-        }
+        if (!value.target) return;
+        const choice = binding ? {
+          action: "bind",
+          identity_id: identity.id,
+          performer_id: value.target.id
+        } : {
+          action: "link",
+          account_key: row.account_key,
+          [value.kind === "stash" ? "performer_id" : "identity_id"]: value.target.id
+        };
+        await previewChoice(choice);
       }
     });
     async function apply() {
@@ -115,8 +168,7 @@ function register(host) {
       setError(null);
       try {
         const result = await host.operations.mutate("apply_link", {
-          catalog_id: row.catalog_id,
-          performer_id: preview.performer.id,
+          ...preview.choice,
           review_token: preview.review_token
         });
         if (alive.current) onApplied(result);
@@ -130,14 +182,6 @@ function register(host) {
         onBusy(false);
       }
     }
-    const needle = search.trim().toLocaleLowerCase();
-    const options = [...performers].sort(
-      (a, b) => Number(row.candidate_ids.includes(b.id)) - Number(row.candidate_ids.includes(a.id))
-    ).filter(
-      (p) => !needle || [p.id, p.name, p.disambiguation, ...p.alias_list, ...p.urls].some(
-        (value) => value?.toLocaleLowerCase().includes(needle)
-      )
-    ).slice(0, 40);
     return /* @__PURE__ */ React.createElement(
       Card,
       {
@@ -146,11 +190,16 @@ function register(host) {
         tabIndex: -1,
         "aria-labelledby": "catalog-review-title"
       },
-      /* @__PURE__ */ React.createElement(CardHeader, null, /* @__PURE__ */ React.createElement(CardTitle, { id: "catalog-review-title" }, msg("review_catalog", "Review {label}", { label: row.label })), /* @__PURE__ */ React.createElement(CardDescription, null, msg(
-        "whole_catalog",
-        "Choose the performer who owns every account below. Accounts already joined in one creator catalog stay together."
+      /* @__PURE__ */ React.createElement(CardHeader, null, /* @__PURE__ */ React.createElement(CardTitle, { id: "catalog-review-title" }, binding ? msg("bind_title", "Link Stash performer to {name}", {
+        name: identity.name
+      }) : msg("review_account", "Review {label}", { label: row.label })), /* @__PURE__ */ React.createElement(CardDescription, null, binding ? msg(
+        "bind_help",
+        "Keep this catalog performer\u2019s UUID and associate it with a performer in this Stash library."
+      ) : msg(
+        "one_account",
+        "Choose who owns this source account. Each account can be reassigned independently; source catalogs and folders stay separate."
       ))),
-      /* @__PURE__ */ React.createElement(CardContent, { className: "catalog-review-stack" }, /* @__PURE__ */ React.createElement("code", null, row.catalog_id), row.conflicts.map((conflict, i) => /* @__PURE__ */ React.createElement(Alert, { key: i, variant: "destructive" }, /* @__PURE__ */ React.createElement(AlertTitle, null, msg("conflict", "Conflicting links")), /* @__PURE__ */ React.createElement(AlertDescription, null, conflict.reason))), row.accounts.map((account) => /* @__PURE__ */ React.createElement(Account, { key: account.account_key, account, performers })), /* @__PURE__ */ React.createElement(
+      /* @__PURE__ */ React.createElement(CardContent, { className: "catalog-review-stack" }, binding ? /* @__PURE__ */ React.createElement("p", { "data-selectable-text": true }, msg("performer_uuid", "Catalog performer ID"), ": ", /* @__PURE__ */ React.createElement("code", null, identity.id)) : /* @__PURE__ */ React.createElement(React.Fragment, null, row.conflicts.map((conflict, i) => /* @__PURE__ */ React.createElement(Alert, { key: i, variant: "destructive" }, /* @__PURE__ */ React.createElement(AlertTitle, null, msg("conflict", "Conflicting links")), /* @__PURE__ */ React.createElement(AlertDescription, null, conflict.reason))), /* @__PURE__ */ React.createElement(Evidence, { account: row, performers })), /* @__PURE__ */ React.createElement(
         "form",
         {
           onSubmit: (event) => {
@@ -159,11 +208,44 @@ function register(host) {
             void form.handleSubmit();
           }
         },
-        /* @__PURE__ */ React.createElement(FieldGroup, null, /* @__PURE__ */ React.createElement(form.Field, { name: "performer" }, (field) => {
+        /* @__PURE__ */ React.createElement(FieldGroup, null, !binding && /* @__PURE__ */ React.createElement(form.Field, { name: "kind" }, (field) => /* @__PURE__ */ React.createElement(Field, null, /* @__PURE__ */ React.createElement(FieldLabel, { htmlFor: "catalog-review-target-kind" }, msg("choose_from", "Choose from")), /* @__PURE__ */ React.createElement(
+          Select,
+          {
+            value: field.state.value,
+            disabled: !!pending,
+            onValueChange: (value) => {
+              if (!value) return;
+              field.handleChange(value);
+              form.setFieldValue("target", null);
+              setSearch("");
+              setPreview(null);
+              setError(null);
+            }
+          },
+          /* @__PURE__ */ React.createElement(SelectTrigger, { id: "catalog-review-target-kind" }, /* @__PURE__ */ React.createElement(SelectValue, null, field.state.value === "stash" ? msg("stash_performers", "Stash performers") : msg("catalog_performers", "Catalog performers"))),
+          /* @__PURE__ */ React.createElement(SelectContent, null, /* @__PURE__ */ React.createElement(SelectGroup, null, /* @__PURE__ */ React.createElement(SelectItem, { value: "stash" }, msg("stash_performers", "Stash performers")), /* @__PURE__ */ React.createElement(SelectItem, { value: "catalog" }, msg("catalog_performers", "Catalog performers"))))
+        ))), /* @__PURE__ */ React.createElement(form.Subscribe, { selector: (state) => state.values.kind }, (kind) => /* @__PURE__ */ React.createElement(form.Field, { name: "target" }, (field) => {
           const invalid = field.state.meta.isTouched && !field.state.meta.isValid;
-          return /* @__PURE__ */ React.createElement(Field, { "data-invalid": invalid }, /* @__PURE__ */ React.createElement(FieldLabel, { htmlFor: "catalog-review-performer" }, msg("performer", "Stash performer")), /* @__PURE__ */ React.createElement(
+          const isStash = binding || kind === "stash";
+          const label = isStash ? personLabel : identityLabel;
+          const needle = search.trim().toLocaleLowerCase();
+          const options = [...isStash ? performers : identities].sort(
+            (a, b) => Number(row?.candidate_ids?.includes(b.id) ?? false) - Number(row?.candidate_ids?.includes(a.id) ?? false)
+          ).filter(
+            (p) => !needle || [
+              p.id,
+              p.name,
+              p.disambiguation,
+              ...p.alias_list ?? [],
+              ...p.urls ?? []
+            ].some(
+              (value) => value?.toLocaleLowerCase().includes(needle)
+            )
+          ).slice(0, 40);
+          return /* @__PURE__ */ React.createElement(Field, { "data-invalid": invalid }, /* @__PURE__ */ React.createElement(FieldLabel, { htmlFor: "catalog-review-performer" }, isStash ? msg("performer", "Stash performer") : msg("catalog_performer", "Catalog performer")), /* @__PURE__ */ React.createElement(
             Combobox,
             {
+              key: kind,
               items: options,
               filter: null,
               value: field.state.value,
@@ -173,7 +255,7 @@ function register(host) {
                 setPreview(null);
                 setError(null);
               },
-              itemToStringLabel: personLabel,
+              itemToStringLabel: label,
               itemToStringValue: (p) => p.id,
               isItemEqualToValue: (a, b) => a.id === b.id,
               onOpenChange: (open) => {
@@ -197,39 +279,65 @@ function register(host) {
                 )
               }
             ),
-            /* @__PURE__ */ React.createElement(ComboboxContent, null, /* @__PURE__ */ React.createElement(ComboboxEmpty, null, msg("no_performers", "No matching performers")), /* @__PURE__ */ React.createElement(ComboboxList, null, (p) => /* @__PURE__ */ React.createElement(ComboboxItem, { key: p.id, value: p }, /* @__PURE__ */ React.createElement("div", { className: "catalog-review-option" }, /* @__PURE__ */ React.createElement("strong", null, personLabel(p)), p.alias_list.length > 0 && /* @__PURE__ */ React.createElement("span", null, msg("aliases", "Aliases: {names}", {
+            /* @__PURE__ */ React.createElement(ComboboxContent, null, /* @__PURE__ */ React.createElement(ComboboxEmpty, null, msg("no_performers", "No matching performers")), /* @__PURE__ */ React.createElement(ComboboxList, null, (p) => /* @__PURE__ */ React.createElement(ComboboxItem, { key: p.id, value: p }, /* @__PURE__ */ React.createElement("div", { className: "catalog-review-option" }, /* @__PURE__ */ React.createElement("strong", null, label(p)), p.alias_list?.length > 0 && /* @__PURE__ */ React.createElement("span", null, msg("aliases", "Aliases: {names}", {
               names: p.alias_list.join(", ")
             }))))))
-          ), /* @__PURE__ */ React.createElement(FieldDescription, null, msg(
-            "suggested_first",
-            "Candidates appear first. Names and aliases can collide; check the performer ID, disambiguation and profile evidence."
+          ), /* @__PURE__ */ React.createElement(FieldDescription, null, isStash ? msg(
+            "stash_choice_help",
+            "A new catalog UUID is created only if this Stash performer has none. Check names, aliases and profile evidence before linking."
+          ) : msg(
+            "catalog_choice_help",
+            "Reuse an existing catalog UUID, including performers without a current Stash binding."
           )), invalid && /* @__PURE__ */ React.createElement(FieldError, { errors: field.state.meta.errors }));
-        }), /* @__PURE__ */ React.createElement(Button, { type: "submit", variant: "outline", disabled: !!pending }, pending === "preview" && /* @__PURE__ */ React.createElement(Spinner, null), msg("preview", "Preview link")))
+        })), /* @__PURE__ */ React.createElement(Button, { type: "submit", variant: "outline", disabled: !!pending }, pending === "preview" && /* @__PURE__ */ React.createElement(Spinner, null), msg("preview", "Preview link")))
+      ), !binding && /* @__PURE__ */ React.createElement(
+        Button,
+        {
+          type: "button",
+          variant: "outline",
+          disabled: !!pending,
+          onClick: () => void previewChoice({
+            action: "unlink",
+            account_key: row.account_key
+          })
+        },
+        msg("preview_unlink", "Preview unlink")
       ), error && /* @__PURE__ */ React.createElement(Alert, { variant: "destructive", role: "alert" }, /* @__PURE__ */ React.createElement(AlertTitle, null, msg("failed", "Could not complete the request")), /* @__PURE__ */ React.createElement(AlertDescription, null, error, /* @__PURE__ */ React.createElement("p", null, msg(
-        "retry_preview",
-        "Preview again to retry with current data. A failed apply may have saved the explicit choice; catalog copies can be retried."
+        "retry_preview_atomic",
+        "Preview again using current data. Association changes are committed together."
       )))), preview && /* @__PURE__ */ React.createElement(
         "section",
         {
           "aria-label": msg("proposed_changes", "Proposed changes"),
           className: "catalog-review-stack"
         },
-        /* @__PURE__ */ React.createElement("h3", null, msg("link_to", "Link to {performer}", {
-          performer: personLabel(preview.performer)
+        /* @__PURE__ */ React.createElement("h3", null, preview.action === "unlink" ? msg("unlink_title", "Unlink this source account") : msg("link_to_identity", "Link to {performer}", {
+          performer: preview.identity_name
         })),
+        preview.action === "unlink" ? /* @__PURE__ */ React.createElement("p", null, msg(
+          "unlink_help",
+          "Remove this account\u2019s association. Automatic profile matching will leave it unlinked until you explicitly link it again. The catalog performer and its other accounts remain."
+        )) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", null, preview.creates_identity ? msg(
+          "new_uuid",
+          "Create a catalog performer with a permanent UUID when you apply this link."
+        ) : msg("reuse_uuid", "Use the existing catalog performer UUID.")), preview.identity_id && /* @__PURE__ */ React.createElement("p", { "data-selectable-text": true }, msg("performer_uuid", "Catalog performer ID"), ":", " ", /* @__PURE__ */ React.createElement("code", null, preview.identity_id)), preview.performer && /* @__PURE__ */ React.createElement("p", null, msg("stash_binding", "Stash binding: {name}", {
+          name: personLabel(preview.performer)
+        }))),
+        preview.previous_identity_name && /* @__PURE__ */ React.createElement("p", null, msg("previous_owner", "Currently associated with: {name}", {
+          name: preview.previous_identity_name
+        })),
+        preview.account && /* @__PURE__ */ React.createElement("p", null, msg("changing_account", "Account being changed: {platform} \xB7 {name}", {
+          platform: preview.account.platform,
+          name: preview.account.handles.join(", ") || preview.account.source_id
+        })),
+        preview.associated_accounts.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("p", null, msg(
+          "other_accounts",
+          "Other accounts already associated with this performer:"
+        )), /* @__PURE__ */ React.createElement("ul", null, preview.associated_accounts.map((account) => /* @__PURE__ */ React.createElement("li", { key: account.account_key }, account.platform, ":", " ", account.handles.join(", ") || account.source_id)))),
         /* @__PURE__ */ React.createElement("p", null, msg(
-          "preview_explanation",
-          "Save the selected accounts as explicit links. All catalogs below will share this performer identity and use the performer\u2019s name as their label."
+          "preserved_separate",
+          "Source metadata and media stay in their existing catalogs and folders."
         )),
-        preview.catalogs.map((catalog) => /* @__PURE__ */ React.createElement("div", { className: "catalog-review-preview-catalog", key: catalog.id }, /* @__PURE__ */ React.createElement("div", { className: "catalog-review-line" }, /* @__PURE__ */ React.createElement("strong", null, catalog.label), /* @__PURE__ */ React.createElement(Badge, { variant: "outline" }, catalog.id === preview.target_catalog ? msg("destination", "Destination") : msg("merge_into", "Merge into destination"))), /* @__PURE__ */ React.createElement("code", null, catalog.id), /* @__PURE__ */ React.createElement("ul", null, catalog.accounts.map((account) => /* @__PURE__ */ React.createElement("li", { key: account.account_key }, account.platform, ": ", account.handles.join(", "), " ", /* @__PURE__ */ React.createElement("code", null, account.account_key)))))),
-        /* @__PURE__ */ React.createElement("p", null, msg(
-          "preserved",
-          "Source account IDs, posts and captured evidence are preserved. Media files stay in place. This does not merge Stash performers or re-import existing scenes and images."
-        )),
-        preview.other_conflicts.length > 0 && /* @__PURE__ */ React.createElement(Alert, null, /* @__PURE__ */ React.createElement(AlertTitle, null, msg("other_conflicts", "Other conflicts remain")), /* @__PURE__ */ React.createElement(AlertDescription, null, msg(
-          "other_conflicts_detail",
-          "Only the catalogs shown above will be linked. Other conflicting catalogs remain for review."
-        ))),
         preview.blocked_reason && /* @__PURE__ */ React.createElement(Alert, null, /* @__PURE__ */ React.createElement(AlertTitle, null, msg("apply_disabled", "Apply is disabled")), /* @__PURE__ */ React.createElement(AlertDescription, null, preview.blocked_reason)),
         /* @__PURE__ */ React.createElement(
           Button,
@@ -239,7 +347,7 @@ function register(host) {
             onClick: () => void apply()
           },
           pending === "apply" && /* @__PURE__ */ React.createElement(Spinner, null),
-          msg("apply", "Apply reviewed link")
+          preview.action === "unlink" ? msg("apply_unlink", "Apply reviewed unlink") : msg("apply", "Apply reviewed link")
         )
       )),
       /* @__PURE__ */ React.createElement(CardFooter, null, /* @__PURE__ */ React.createElement(Button, { type: "button", variant: "ghost", disabled: !!pending, onClick: onClose }, msg("close", "Close review")))
@@ -252,9 +360,12 @@ function register(host) {
     const [error, setError] = useState(null);
     const [notice, setNotice] = useState(null);
     const [selected, setSelected] = useState(null);
+    const [tab, setTab] = useState("accounts");
     const [page, setPage] = useState(0);
     const request = useRef(0);
-    const form = useForm({ defaultValues: { search: "", status: "attention" } });
+    const form = useForm({
+      defaultValues: { search: "", status: "attention" }
+    });
     const refresh = useCallback(async () => {
       const id = ++request.current;
       setLoading(true);
@@ -275,19 +386,28 @@ function register(host) {
     useEffect(() => {
       void refresh();
       return () => {
-        request.current += 1;
+        request.current++;
       };
     }, [refresh]);
     function applied(result) {
       setNotice(
-        msg(
-          "applied",
-          "Linked {accounts, number} accounts and merged {catalogs, number} catalogs.",
-          { accounts: result.linked_accounts, catalogs: result.merged_catalogs }
+        result.action === "unlink" ? msg(
+          "unlinked_notice",
+          "Account unlinked. Automatic matching will respect this choice."
+        ) : result.action === "bind" ? msg(
+          "binding_notice",
+          "Stash binding saved. The catalog performer UUID is unchanged."
+        ) : msg(
+          "association_notice",
+          "Account linked to the catalog performer. Source catalogs remain separate."
         )
       );
       setSelected(null);
       void refresh();
+    }
+    function chooseAccount(row) {
+      setSelected({ row });
+      setNotice(null);
     }
     return /* @__PURE__ */ React.createElement(
       "div",
@@ -296,8 +416,8 @@ function register(host) {
         "data-scroll-restoration-id": "plugin-catalogMetadata-review"
       },
       /* @__PURE__ */ React.createElement("div", { className: "catalog-review" }, /* @__PURE__ */ React.createElement("link", { rel: "stylesheet", href: new URL("./review.css", import.meta.url).href }), /* @__PURE__ */ React.createElement("header", { className: "catalog-review-header" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h1", null, msg("title", "Catalog review")), /* @__PURE__ */ React.createElement("p", null, msg(
-        "subtitle",
-        "Resolve creator account links and performer conflicts. Browsing and previewing do not change Stash or the catalogs."
+        "subtitle_uuids",
+        "Manage catalog performers and their source accounts. Performer UUIDs persist independently of names, folders and Stash IDs."
       ))), /* @__PURE__ */ React.createElement(
         Button,
         {
@@ -308,7 +428,10 @@ function register(host) {
         },
         loading && /* @__PURE__ */ React.createElement(Spinner, null),
         msg("refresh", "Refresh")
-      )), /* @__PURE__ */ React.createElement("div", { className: "catalog-review-line" }, /* @__PURE__ */ React.createElement(Link, { to: "/settings/plugins" }, msg("settings", "Plugin settings")), /* @__PURE__ */ React.createElement("span", null, msg("scope", "Scene and image mapping previews remain in plugin settings."))), notice && /* @__PURE__ */ React.createElement(Alert, { role: "status" }, /* @__PURE__ */ React.createElement(AlertTitle, null, msg("saved_title", "Link applied")), /* @__PURE__ */ React.createElement(AlertDescription, null, notice)), error && /* @__PURE__ */ React.createElement(Alert, { variant: "destructive", role: "alert" }, /* @__PURE__ */ React.createElement(AlertTitle, null, msg("load_failed", "Could not load catalog reviews")), /* @__PURE__ */ React.createElement(AlertDescription, null, error), /* @__PURE__ */ React.createElement(
+      )), /* @__PURE__ */ React.createElement("div", { className: "catalog-review-line" }, /* @__PURE__ */ React.createElement(Link, { to: "/settings/plugins" }, msg("settings", "Plugin settings")), /* @__PURE__ */ React.createElement("span", null, msg(
+        "read_only_browsing",
+        "Browsing and previews are read-only. Apply saves the reviewed association."
+      ))), notice && /* @__PURE__ */ React.createElement(Alert, { role: "status" }, /* @__PURE__ */ React.createElement(AlertTitle, null, msg("saved_title", "Association saved")), /* @__PURE__ */ React.createElement(AlertDescription, null, notice)), error && /* @__PURE__ */ React.createElement(Alert, { variant: "destructive", role: "alert" }, /* @__PURE__ */ React.createElement(AlertTitle, null, msg("load_failed", "Could not load catalog reviews")), /* @__PURE__ */ React.createElement(AlertDescription, null, error), /* @__PURE__ */ React.createElement(
         Button,
         {
           type: "button",
@@ -320,92 +443,123 @@ function register(host) {
       )), loading && !data && /* @__PURE__ */ React.createElement("p", { role: "status", className: "catalog-review-line" }, /* @__PURE__ */ React.createElement(Spinner, null), msg("loading", "Reading catalog accounts and performer evidence\u2026")), data && /* @__PURE__ */ React.createElement(React.Fragment, null, data.blocked_reason && /* @__PURE__ */ React.createElement(Alert, null, /* @__PURE__ */ React.createElement(AlertTitle, null, msg("preview_available", "Review and preview are available")), /* @__PURE__ */ React.createElement(AlertDescription, null, data.blocked_reason)), data.unattached_conflicts.length > 0 && /* @__PURE__ */ React.createElement(Alert, { variant: "destructive" }, /* @__PURE__ */ React.createElement(AlertTitle, null, msg(
         "missing_links",
         "Some saved links reference missing accounts or performers"
-      )), /* @__PURE__ */ React.createElement(AlertDescription, null, data.unattached_conflicts.map((conflict, i) => /* @__PURE__ */ React.createElement("p", { key: i }, /* @__PURE__ */ React.createElement("code", null, conflict.account_key), " \xB7 #", conflict.performer_id, ":", " ", conflict.reason)), /* @__PURE__ */ React.createElement("p", null, msg(
-        "missing_links_settings",
-        "Check Performer account links in plugin settings for these entries."
-      )))), /* @__PURE__ */ React.createElement(FieldGroup, { className: "catalog-review-filters" }, /* @__PURE__ */ React.createElement(form.Field, { name: "search" }, (field) => /* @__PURE__ */ React.createElement(Field, null, /* @__PURE__ */ React.createElement(FieldLabel, { htmlFor: "catalog-review-search" }, msg("search", "Search catalogs")), /* @__PURE__ */ React.createElement(
-        Input,
+      )), /* @__PURE__ */ React.createElement(AlertDescription, null, data.unattached_conflicts.map((conflict, i) => /* @__PURE__ */ React.createElement("p", { key: i }, conflict.account_key, " \xB7 ", conflict.reason)))), /* @__PURE__ */ React.createElement(
+        Tabs,
         {
-          id: "catalog-review-search",
-          value: field.state.value,
-          disabled: busy,
-          placeholder: msg(
-            "search_hint",
-            "Handle, account key, catalog or performer"
-          ),
-          onChange: (event) => {
-            field.handleChange(event.target.value);
+          value: tab,
+          onValueChange: (value) => {
+            if (busy) return;
+            setTab(value);
+            setSelected(null);
             setPage(0);
           }
-        }
-      ))), /* @__PURE__ */ React.createElement(form.Field, { name: "status" }, (field) => /* @__PURE__ */ React.createElement(Field, null, /* @__PURE__ */ React.createElement(FieldLabel, { htmlFor: "catalog-review-status" }, msg("show", "Show")), /* @__PURE__ */ React.createElement(
-        Select,
-        {
-          value: field.state.value,
-          disabled: busy,
-          onValueChange: (value) => {
-            if (value) {
-              field.handleChange(value);
+        },
+        /* @__PURE__ */ React.createElement(TabsList, null, /* @__PURE__ */ React.createElement(TabsTrigger, { value: "accounts", disabled: busy }, msg("source_accounts", "Source accounts")), /* @__PURE__ */ React.createElement(TabsTrigger, { value: "performers", disabled: busy }, msg("catalog_performers", "Catalog performers"), " (", data.identities.length, ")")),
+        /* @__PURE__ */ React.createElement(FieldGroup, { className: "catalog-review-filters" }, /* @__PURE__ */ React.createElement(form.Field, { name: "search" }, (field) => /* @__PURE__ */ React.createElement(Field, null, /* @__PURE__ */ React.createElement(FieldLabel, { htmlFor: "catalog-review-search" }, msg("search", "Search")), /* @__PURE__ */ React.createElement(
+          Input,
+          {
+            id: "catalog-review-search",
+            value: field.state.value,
+            disabled: busy,
+            placeholder: msg(
+              "search_hint",
+              "Name, alias, source folder or ID"
+            ),
+            onChange: (event) => {
+              field.handleChange(event.target.value);
               setPage(0);
             }
           }
-        },
-        /* @__PURE__ */ React.createElement(SelectTrigger, { id: "catalog-review-status" }, /* @__PURE__ */ React.createElement(SelectValue, null, statusLabel(field.state.value))),
-        /* @__PURE__ */ React.createElement(SelectContent, null, /* @__PURE__ */ React.createElement(SelectGroup, null, [
-          "attention",
-          "conflict",
-          "candidate",
-          "proposed",
-          "linked",
-          "unmatched",
-          "all"
-        ].map((value) => /* @__PURE__ */ React.createElement(SelectItem, { key: value, value }, statusLabel(value), value in data.counts ? ` (${data.counts[value]})` : ""))))
-      )))), /* @__PURE__ */ React.createElement(
-        "div",
-        {
-          className: `catalog-review-layout${selected ? " has-selection" : ""}`,
-          "aria-busy": loading || busy
-        },
-        /* @__PURE__ */ React.createElement(form.Subscribe, { selector: (state) => state.values }, (filters) => {
-          const needle = filters.search.trim().toLocaleLowerCase();
-          const people = Object.fromEntries(data.performers.map((p) => [p.id, p]));
-          const rows = data.catalogs.filter(
-            (row) => (filters.status === "all" || filters.status === row.status || filters.status === "attention" && ["conflict", "candidate", "proposed"].includes(row.status)) && (!needle || [
-              row.label,
-              row.catalog_id,
-              ...row.accounts.flatMap((a) => [a.account_key, ...a.handles]),
-              ...row.candidate_ids.flatMap((id) => [
-                id,
-                people[id]?.name,
-                people[id]?.disambiguation,
-                ...people[id]?.alias_list ?? []
+        ))), tab === "accounts" && /* @__PURE__ */ React.createElement(form.Field, { name: "status" }, (field) => /* @__PURE__ */ React.createElement(Field, null, /* @__PURE__ */ React.createElement(FieldLabel, { htmlFor: "catalog-review-status" }, msg("show", "Show")), /* @__PURE__ */ React.createElement(
+          Select,
+          {
+            value: field.state.value,
+            disabled: busy,
+            onValueChange: (value) => {
+              if (value) {
+                field.handleChange(value);
+                setPage(0);
+              }
+            }
+          },
+          /* @__PURE__ */ React.createElement(SelectTrigger, { id: "catalog-review-status" }, /* @__PURE__ */ React.createElement(SelectValue, null, statusLabel(field.state.value))),
+          /* @__PURE__ */ React.createElement(SelectContent, null, /* @__PURE__ */ React.createElement(SelectGroup, null, [
+            "attention",
+            "conflict",
+            "candidate",
+            "proposed",
+            "linked",
+            "unlinked",
+            "unmatched",
+            "all"
+          ].map((value) => /* @__PURE__ */ React.createElement(SelectItem, { key: value, value }, statusLabel(value), value in data.counts ? ` (${data.counts[value]})` : ""))))
+        )))),
+        /* @__PURE__ */ React.createElement(
+          "div",
+          {
+            className: selected ? "catalog-review-layout has-selection" : "catalog-review-layout",
+            "aria-busy": loading || busy
+          },
+          /* @__PURE__ */ React.createElement(form.Subscribe, { selector: (state) => state.values }, (filters) => {
+            const needle = filters.search.trim().toLocaleLowerCase();
+            const people = Object.fromEntries(
+              data.performers.map((p) => [p.id, p])
+            );
+            const matches = (values) => !needle || values.some(
+              (value) => value?.toLocaleLowerCase().includes(needle)
+            );
+            const accounts = data.accounts.filter(
+              (row) => (filters.status === "all" || filters.status === row.status || filters.status === "attention" && ["conflict", "candidate", "proposed"].includes(
+                row.status
+              )) && matches([
+                row.label,
+                row.account_key,
+                row.catalog_id,
+                row.identity_name,
+                row.identity_id,
+                ...row.directories,
+                ...row.handles,
+                ...row.candidate_ids.flatMap((id) => [
+                  id,
+                  people[id]?.name,
+                  people[id]?.disambiguation,
+                  ...people[id]?.alias_list ?? []
+                ])
               ])
-            ].some((value) => value?.toLocaleLowerCase().includes(needle)))
-          );
-          const currentPage = Math.min(
-            page,
-            Math.max(0, Math.ceil(rows.length / 12) - 1)
-          );
-          return /* @__PURE__ */ React.createElement(
-            "section",
-            {
-              className: "catalog-review-stack",
-              "aria-label": msg("catalogs", "Creator catalogs")
-            },
-            /* @__PURE__ */ React.createElement("p", { role: "status" }, msg("count", "{count, number} catalogs", { count: rows.length })),
-            rows.length === 0 && /* @__PURE__ */ React.createElement("p", null, msg(
-              "empty",
-              "No catalogs match these filters. Try All catalogs or another search."
-            )),
-            rows.slice(currentPage * 12, (currentPage + 1) * 12).map((row) => /* @__PURE__ */ React.createElement(Card, { key: row.catalog_id }, /* @__PURE__ */ React.createElement(CardHeader, null, /* @__PURE__ */ React.createElement("div", { className: "catalog-review-line" }, /* @__PURE__ */ React.createElement(CardTitle, null, row.label), /* @__PURE__ */ React.createElement(
+            );
+            const identities = data.identities.filter(
+              (identity) => matches([
+                identity.id,
+                identity.name,
+                ...identity.alias_list ?? [],
+                ...identity.accounts.flatMap((a) => [
+                  a.account_key,
+                  ...a.handles ?? [],
+                  ...a.directories ?? []
+                ])
+              ])
+            );
+            const rows = tab === "accounts" ? accounts : identities;
+            const currentPage = Math.min(
+              page,
+              Math.max(0, Math.ceil(rows.length / 12) - 1)
+            );
+            return /* @__PURE__ */ React.createElement("section", { className: "catalog-review-stack" }, /* @__PURE__ */ React.createElement("p", { role: "status" }, tab === "accounts" ? msg("accounts_count", "{count, number} source accounts", {
+              count: accounts.length
+            }) : msg(
+              "identities_count",
+              "{count, number} catalog performers",
+              { count: identities.length }
+            )), /* @__PURE__ */ React.createElement(TabsContent, { value: "accounts", className: "catalog-review-stack" }, accounts.length === 0 && /* @__PURE__ */ React.createElement("p", null, msg(
+              "empty_accounts",
+              "No accounts match these filters. Try All accounts or another search."
+            )), accounts.slice(currentPage * 12, (currentPage + 1) * 12).map((row) => /* @__PURE__ */ React.createElement(Card, { key: row.account_key }, /* @__PURE__ */ React.createElement(CardHeader, null, /* @__PURE__ */ React.createElement("div", { className: "catalog-review-line" }, /* @__PURE__ */ React.createElement(CardTitle, null, row.label), /* @__PURE__ */ React.createElement(
               Badge,
               {
                 variant: row.status === "conflict" ? "destructive" : "secondary"
               },
               statusLabel(row.status)
-            )), /* @__PURE__ */ React.createElement(CardDescription, null, row.accounts.map(
-              (a) => `${a.platform}: ${a.handles.join(", ") || a.source_id}`
-            ).join(" \xB7 "))), /* @__PURE__ */ React.createElement(CardContent, null, /* @__PURE__ */ React.createElement("code", null, row.catalog_id), row.candidate_ids.length > 0 && /* @__PURE__ */ React.createElement("p", null, msg("candidates", "Candidates: {names}", {
+            )), /* @__PURE__ */ React.createElement(CardDescription, null, row.platform, row.identity_name && ` \xB7 ${row.identity_name}`)), /* @__PURE__ */ React.createElement(CardContent, { className: "catalog-review-stack" }, /* @__PURE__ */ React.createElement(Source, { account: row }), row.candidate_ids.length > 0 && /* @__PURE__ */ React.createElement("p", null, msg("candidates", "Stash candidates: {names}", {
               names: row.candidate_ids.map(
                 (id) => people[id] ? personLabel(people[id]) : `#${id}`
               ).join("; ")
@@ -414,18 +568,76 @@ function register(host) {
               {
                 type: "button",
                 variant: "outline",
-                disabled: busy || loading || selected?.catalog_id === row.catalog_id,
-                onClick: () => {
-                  setSelected(row);
-                  setNotice(null);
-                },
-                "aria-label": msg("review_catalog", "Review {label}", {
-                  label: row.label
-                })
+                disabled: busy || loading || selected?.row?.account_key === row.account_key,
+                onClick: () => chooseAccount(row),
+                "aria-label": msg(
+                  "review_account",
+                  "Review {label}",
+                  { label: row.label }
+                )
               },
               msg("review", "Review")
-            )))),
-            rows.length > 12 && /* @__PURE__ */ React.createElement(
+            ))))), /* @__PURE__ */ React.createElement(
+              TabsContent,
+              {
+                value: "performers",
+                className: "catalog-review-stack"
+              },
+              identities.length === 0 && /* @__PURE__ */ React.createElement("p", null, msg(
+                "empty_identities",
+                "Catalog performers appear when accounts are linked or existing associations are migrated."
+              )),
+              identities.slice(currentPage * 12, (currentPage + 1) * 12).map((identity) => /* @__PURE__ */ React.createElement(Card, { key: identity.id }, /* @__PURE__ */ React.createElement(CardHeader, null, /* @__PURE__ */ React.createElement(CardTitle, null, identity.name), /* @__PURE__ */ React.createElement(CardDescription, null, msg(
+                "associated_count",
+                "{count, plural, one {# associated account} other {# associated accounts}}",
+                { count: identity.accounts.length }
+              ))), /* @__PURE__ */ React.createElement(CardContent, { className: "catalog-review-stack" }, /* @__PURE__ */ React.createElement("p", { "data-selectable-text": true }, msg("performer_uuid", "Catalog performer ID"), ":", " ", /* @__PURE__ */ React.createElement("code", null, identity.id)), identity.alias_list?.length > 0 && /* @__PURE__ */ React.createElement("p", null, msg("aliases", "Aliases: {names}", {
+                names: identity.alias_list.join(", ")
+              })), identity.stash_bindings.map((binding) => /* @__PURE__ */ React.createElement(
+                "p",
+                {
+                  key: `${binding.namespace}:${binding.performer_id}`
+                },
+                msg(
+                  "library_binding",
+                  "Stash library {namespace}: {name} \xB7 #{id}",
+                  {
+                    namespace: binding.namespace,
+                    name: binding.name ?? "",
+                    id: binding.performer_id
+                  }
+                ),
+                binding.redirect_to && ` \u2192 #${binding.redirect_to}`
+              )), identity.accounts.map((account) => /* @__PURE__ */ React.createElement(Card, { size: "sm", key: account.account_key }, /* @__PURE__ */ React.createElement(CardHeader, null, /* @__PURE__ */ React.createElement(CardTitle, null, account.platform ?? "", " \xB7", " ", account.handles?.join(", ") || account.account_key)), /* @__PURE__ */ React.createElement(CardContent, null, account.missing ? /* @__PURE__ */ React.createElement("p", null, msg(
+                "missing_account",
+                "Source account is not currently present in an active catalog. Its association is retained."
+              )) : /* @__PURE__ */ React.createElement(Source, { account })), /* @__PURE__ */ React.createElement(CardFooter, null, /* @__PURE__ */ React.createElement(
+                Button,
+                {
+                  type: "button",
+                  variant: "outline",
+                  disabled: busy || loading || account.missing,
+                  onClick: () => chooseAccount(
+                    data.accounts.find(
+                      (row) => row.account_key === account.account_key
+                    )
+                  )
+                },
+                msg("manage_account", "Manage account")
+              ))))), /* @__PURE__ */ React.createElement(CardFooter, null, /* @__PURE__ */ React.createElement(
+                Button,
+                {
+                  type: "button",
+                  variant: "outline",
+                  disabled: busy || loading,
+                  onClick: () => {
+                    setSelected({ identity });
+                    setNotice(null);
+                  }
+                },
+                msg("manage_binding", "Link Stash performer")
+              ))))
+            ), rows.length > 12 && /* @__PURE__ */ React.createElement(
               "nav",
               {
                 className: "catalog-review-line",
@@ -455,19 +667,21 @@ function register(host) {
                 },
                 msg("next", "Next")
               )
-            )
-          );
-        }),
-        selected && /* @__PURE__ */ React.createElement(
-          ReviewPanel,
-          {
-            key: selected.catalog_id,
-            row: selected,
-            performers: data.performers,
-            onBusy: setBusy,
-            onApplied: applied,
-            onClose: () => setSelected(null)
-          }
+            ));
+          }),
+          selected && /* @__PURE__ */ React.createElement(
+            ReviewPanel,
+            {
+              key: selected.row?.account_key ?? selected.identity.id,
+              row: selected.row,
+              identity: selected.identity,
+              identities: data.identities,
+              performers: data.performers,
+              onBusy: setBusy,
+              onApplied: applied,
+              onClose: () => setSelected(null)
+            }
+          )
         )
       )))
     );
@@ -475,7 +689,10 @@ function register(host) {
   host.routes.add({ path: "/catalogMetadata/review", component: ReviewPage });
   host.nav.add({
     to: "/catalogMetadata/review",
-    label: (intl) => intl.formatMessage({ id: "catalogMetadata.review.title", defaultMessage: "Catalog review" }),
+    label: (intl) => intl.formatMessage({
+      id: "catalogMetadata.review.title",
+      defaultMessage: "Catalog review"
+    }),
     placement: "utility"
   });
 }

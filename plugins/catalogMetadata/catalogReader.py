@@ -14,6 +14,10 @@ def get_reader():
         raise RuntimeError('Catalog Metadata requires SCRAPE_CATALOG_ROOT and the scrape-catalog reader')
     if _reader is None:
         sys.path.insert(0, os.environ.get('SCRAPE_CATALOG_CODE', '/opt/scrape-catalog'))
+        try:
+            from scrape_catalog import identities, profiles
+        except ImportError as error:
+            raise RuntimeError('Catalog Metadata 1.7 requires scrape-catalog 0.2.0 or later. Update the catalog backend.') from error
         from scrape_catalog.reader import Reader
         _reader = Reader(root, os.environ.get('SCRAPE_MEDIA_ROOT', '/media/porn'))
         atexit.register(_reader.close)
