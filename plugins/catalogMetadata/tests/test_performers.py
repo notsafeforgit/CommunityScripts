@@ -33,7 +33,8 @@ class PerformerIdentityTests(unittest.TestCase):
         return identities.match_performer(name, performers, self.reader, path or self.path, settings or {})
 
     def sync(self, performers, settings=None, hook=None, preview=False):
-        return identities.sync_links(self.reader, SimpleNamespace(gql_allPerformers=lambda: performers), settings or {}, hook, preview)
+        return identities.sync_links(self.reader, SimpleNamespace(gql_allPerformers=lambda: performers,
+                                     gql_pluginSettings=lambda: settings or {}), settings or {}, hook, preview)
 
     def hashes(self):
         return {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in (self.root / 'catalog').rglob('*')

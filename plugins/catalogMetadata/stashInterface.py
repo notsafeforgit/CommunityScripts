@@ -63,6 +63,18 @@ class StashInterface:
         args = self._fragment['args']
         return args.get('setting'), args.get('entity_type'), args.get('entity_id')
 
+    def get_operation_request(self):
+        args = self._fragment['args']
+        return args.get('operation'), args.get('operation_type'), args.get('input', {})
+
+    def clear_performer_cache(self):
+        self._performers = None
+
+    def gql_savePerformerLinks(self, links):
+        return self.__gql_call('''mutation($input: Map!) {
+            updatePluginSettingsV3(plugin_id: "catalogMetadata", input: $input)
+        }''', {'input': {'performer_account_links': links}})
+
     def get_hook_context(self):
         return self._fragment['args'].get('hookContext') or {}
 
@@ -593,7 +605,9 @@ class StashInterface:
     def __gql_call(self, query, variables=None):
         # Preview has a separate call path. Guard all of this client's write
         # methods as well, so a future refactor cannot silently submit a mutation.
-        if self._mode in ('preview', 'preview_performer_links') and not query.lstrip().startswith('query'):
+        read_only = self._mode in ('preview', 'preview_performer_links') or (
+            self._mode == 'operation' and self._fragment['args'].get('operation_type') == 'query')
+        if read_only and not query.lstrip().startswith('query'):
             raise RuntimeError('GraphQL mutations are disabled during mapping previews')
         # Session cookie for authentication (supports API key for CLI tests)
         graphql_port = str(self._fragment_server["Port"])

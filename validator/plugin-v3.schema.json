@@ -102,6 +102,33 @@
       "title": "Plugin settings",
       "description": "The settings defined for this plugin.",
       "$ref": "#/definitions/SettingConfig"
+    },
+    "operations": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "QUERY",
+              "MUTATION"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
     }
   },
   "definitions": {
@@ -223,7 +250,7 @@
         "Group.Destroy.Post",
         "Performer.Create.Post",
         "Performer.Update.Post",
-                    "Performer.Merge.Post",
+        "Performer.Merge.Post",
         "Performer.Destroy.Post",
         "Studio.Create.Post",
         "Studio.Update.Post",

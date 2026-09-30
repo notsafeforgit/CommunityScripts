@@ -293,7 +293,43 @@ files/hashes and names alone do not establish an association. A username found
 under multiple stable account IDs requires an explicit choice; duplicate URLs
 on different Stash performers are also reported as conflicts.
 
-For existing merges or accounts without supported profile URLs:
+## Catalog review page
+
+Update Stash before installing **Catalog Metadata 1.6**, then reload the UI.
+Open **Catalog review** from the navigation menu, or **Settings → Plugins →
+Catalog Metadata → Open Catalog review**. This first review page covers account
+links and performer conflicts. Scene/image jq previews remain in plugin settings.
+
+1. Filter or search the creator catalogs. **Conflicting links** identifies
+   competing performers or reused handles; **Name or alias match** is a candidate
+   requiring an explicit choice; **Ready to review** has profile/link evidence.
+   **Linked** has already been synchronized. **No match** is available in the
+   Show filter for manually linking an account without matching names or URLs.
+2. Choose **Review** to inspect the account keys and evidence. Search for a Stash
+   performer by name, alias, profile URL, disambiguation or ID. The picker displays
+   IDs and disambiguation so duplicate names can be distinguished.
+3. Choose **Preview link**. The selection applies to every account in that creator
+   catalog. The preview lists the destination and any other catalogs already
+   associated with the selected performer that will be merged into it. Review
+   all of them before continuing; an already joined catalog cannot be split.
+4. Choose **Apply reviewed link**. Only that reviewed performer association is
+   applied. Other candidates and conflicts remain for review. The selected account
+   choices are saved in **Performer account links**, so imports can disambiguate
+   names on captured posts from those accounts. Existing scenes/images are not
+   automatically re-imported; use tagged refresh when wanted.
+
+Opening the page, changing a selection and previewing are read-only. Apply is
+disabled by dry run, an import-only sync direction, or disabled performer identity
+sync. The backend rechecks settings, performers and catalog identities under the
+catalog writer lock. Changed data requires a new preview. Stash and the catalog
+are separate stores, so this is not a distributed transaction: explicit choices
+are saved before catalog copies, and an interrupted copy can be previewed and
+retried. Background sync reloads saved choices after obtaining the same lock.
+Applied catalog merges preserve evidence but cannot be undone by clearing a
+setting. Missing account/performer references are displayed for correction in
+the advanced **Performer account links** setting.
+
+The task-based workflow is also available:
 
 1. Add each account's profile URL to the appropriate Stash performer, or run
    **Preview performer catalog links** to see name-only candidates and account
@@ -344,6 +380,20 @@ Mapping tests skip if neither evaluator is available.
 
 Tests use temporary media/catalogs and mock Stash. They do not change the live
 database or contact external services.
+
+The browser entry is built from `ui/src/index.jsx` using the host's React runtime,
+TanStack Form, Zod and shared controls; it bundles no second copy of React.
+
+```sh
+sh ui/build.sh
+STASH_UI_ROOT=/path/to/stash/ui/v3 node ui/tests/browser.mjs
+```
+
+The browser test uses installed Stash development dependencies and a local mock
+API. It covers explicit apply, stale previews, failure/retry, dry run, mobile
+layout and a deployment prefix. Set `PLAYWRIGHT_BROWSERS_PATH` if needed. The
+shipped `ui/index.js` is generated; rebuild it after editing JSX. Plugin layout
+CSS is scoped in `ui/review.css` because Stash does not compile plugin Tailwind.
 
 The implementation inherits the repository's AGPL-3.0-only license and credits
 the `nfoFileParser` contributors for the Stash mapping and XML/filename parsers.

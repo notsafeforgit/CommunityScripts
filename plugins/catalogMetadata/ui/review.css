@@ -1,0 +1,124 @@
+/* Layout belongs to the plugin; controls and colors belong to the shared host. */
+.catalog-review-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  width: 100%;
+}
+.catalog-review {
+  max-width: 90rem;
+  margin-inline: auto;
+  padding: clamp(1rem, 3vw, 2rem);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.catalog-review h1 {
+  font-size: 1.75rem;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+.catalog-review h3 {
+  font-weight: 650;
+  font-size: 1.1rem;
+}
+.catalog-review p,
+.catalog-review li {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.catalog-review code {
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+  color: var(--color-muted-foreground);
+}
+.catalog-review a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  overflow-wrap: anywhere;
+}
+.catalog-review-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.catalog-review-header p {
+  max-width: 48rem;
+  color: var(--color-muted-foreground);
+  margin-top: 0.4rem;
+}
+.catalog-review-line {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.catalog-review-line > span {
+  font-size: 0.875rem;
+}
+.catalog-review-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+.catalog-review-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+.catalog-review-layout {
+  display: grid;
+  gap: 1.5rem;
+  align-items: start;
+}
+.catalog-review-layout.has-selection {
+  grid-template-columns: minmax(18rem, 1fr) minmax(24rem, 1.5fr);
+}
+.catalog-review-detail {
+  min-width: 0;
+}
+.catalog-review-account,
+.catalog-review-preview-catalog {
+  padding: 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.catalog-review-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.catalog-review-evidence li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.catalog-review-option {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.catalog-review-option span {
+  font-size: 0.75rem;
+  color: var(--color-muted-foreground);
+}
+@media (max-width: 850px) {
+  .catalog-review-layout.has-selection {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .catalog-review-detail {
+    grid-row: 1;
+  }
+  .catalog-review-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

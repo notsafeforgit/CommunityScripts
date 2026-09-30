@@ -1,12 +1,26 @@
 apiVersion: 3
 name: Catalog Metadata
 description: Import catalog metadata and map Stash edits back to manual catalog fields
-version: 1.5.0
+version: 1.6.0
 url: https://github.com/notsafeforgit/CommunityScripts/tree/main/plugins/catalogMetadata
 exec:
 - python
 - '{pluginDir}/catalogMetadata.py'
 interface: raw
+ui:
+  entry: index.js
+  assets:
+    /: ui
+operations:
+  list_reviews:
+    kind: QUERY
+    description: List creator account evidence, performer candidates and conflicts without writes
+  review_link:
+    kind: QUERY
+    description: Preview all catalogs affected by an explicit performer choice without writes
+  apply_link:
+    kind: MUTATION
+    description: Recheck and apply one reviewed performer association and catalog merge
 hooks:
 - name: hook_catalogMetadata
   description: Apply catalog metadata when a scene or image is created
@@ -69,7 +83,7 @@ settings:
     description: >-
       Map stable catalog account keys to Stash performer ID strings, for example {"twitter:id:12345":"42","reddit:id:t2_abc":"42"}.
       Overrides ambiguous profile URLs and disambiguates performer names within those accounts on import.
-      Preview performer catalog links reports account keys and conflicts; Sync performer catalog links applies changes.
+      The Catalog review page lets you choose performers and preview/apply links without editing this JSON.
     default: {}
   performer_link_namespace:
     type: STRING

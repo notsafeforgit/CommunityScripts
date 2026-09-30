@@ -558,7 +558,10 @@ class CatalogMetadataPlugin:
         })
 
     def process(self):
-        if self._stash.get_mode() == "preview":
+        if self._stash.get_mode() == 'operation':
+            from catalogReview import dispatch
+            return dispatch(get_reader(), self._stash, *self._stash.get_operation_request())
+        elif self._stash.get_mode() == "preview":
             return self.preview()
         elif self._stash.get_mode() in ('preview_performer_links', 'sync_performer_links'):
             preview = self._stash.get_mode() == 'preview_performer_links'
@@ -620,4 +623,4 @@ if __name__ == '__main__':
         result = catalogMetadataPlugin.process()
     except Exception as error:
         stash_interface.exit_plugin(err=str(error))
-    stash_interface.exit_plugin(result if stash_interface.get_mode() in ('preview', 'preview_performer_links', 'sync_performer_links') else "Successful!")
+    stash_interface.exit_plugin(result if stash_interface.get_mode() in ('preview', 'preview_performer_links', 'sync_performer_links', 'operation') else "Successful!")

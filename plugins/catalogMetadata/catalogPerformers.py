@@ -149,7 +149,7 @@ def merged_profile(current, previous):
     return ret
 
 
-def plan_links(reader, performers, settings, merge=None, focus=None):
+def plan_links(reader, performers, settings, merge=None, focus=None, accounts=None):
     """Pure plan: profile URLs or explicit stable account keys establish ownership."""
     namespace(settings)
     explicit = explicit_links(settings)
@@ -171,7 +171,7 @@ def plan_links(reader, performers, settings, merge=None, focus=None):
     for profile in previous:
         histories[resolve_id(str(profile['id']), profiles, redirects)].append(profile)
     combined = {pid: merged_profile(profile, histories[pid]) for pid, profile in live.items()}
-    accounts = catalog_accounts(reader)
+    accounts = catalog_accounts(reader) if accounts is None else accounts
     references = defaultdict(set)
     handles = defaultdict(set)
     for key, account in accounts.items():
@@ -195,8 +195,10 @@ def plan_links(reader, performers, settings, merge=None, focus=None):
             if len(keys) == 1:
                 owners[next(iter(keys))].add(pid)
             elif len(keys) > 1 and pid in focus:
-                conflicts.append({'performer_id': pid, 'url': url, 'accounts': sorted(keys),
-                                  'reason': 'Handle refers to multiple account IDs; specify an explicit account link'})
+                unresolved = keys - explicit.keys() - bindings.keys()
+                if unresolved:
+                    conflicts.append({'performer_id': pid, 'url': url, 'accounts': sorted(unresolved),
+                                      'reason': 'Handle refers to multiple account IDs; specify an explicit account link'})
     for key, pid in explicit.items():
         target = resolve_id(pid, profiles, redirects)
         if key not in accounts or target not in live:
@@ -303,10 +305,15 @@ def sync_links(reader, stash, settings, hook=None, preview=False):
         from scrape_catalog.reader import Reader
         from scrape_catalog.store import Store
         with Store(reader.root, reader.media_root) as store, store.lock():
-            # Re-read redirects/bindings under the writer lock before deciding.
+            # A review may have saved a newer explicit choice while this hook
+            # waited. Never overwrite it using the invocation's stale settings.
+            settings = stash.gql_pluginSettings()
+            if settings.get('sync_direction', 'both') not in ('both', 'export') or not settings.get('sync_performer_catalogs', True):
+                return {'links': [], 'conflicts': [], 'name_only_candidates': []}
             with Reader(reader.root, reader.media_root) as fresh:
                 plan = plan_links(fresh, performers, settings, merge, focus)
-            apply_plan(store, plan, settings)
+            if not settings.get('dry_mode', False):
+                apply_plan(store, plan, settings)
     report = {key: value for key, value in plan.items() if key not in ('profiles', 'redirects', 'history')}
     log.LogInfo(('Preview performer catalog links: ' if preview or settings.get('dry_mode', False) else 'Synchronized performer catalog links: ') + json.dumps(report))
     return report
