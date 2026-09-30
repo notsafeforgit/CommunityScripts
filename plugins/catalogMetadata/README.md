@@ -24,6 +24,9 @@ The reader uses read-only SQLite connections, but live WAL databases may require
 access to their shared-memory files. Preserve the catalog mount and permissions.
 Missing configuration or unreadable databases cause a visible error.
 
+Version 1.5 additionally requires the host's `Performer.Merge.Post` notification.
+Update Stash before updating this plugin.
+
 Version 1.2 and later declare `apiVersion: 3` and require the Stash fork's v3 plugin API
 (`pluginSettingsV3`, `pluginEvaluateMappings`, `updatePluginSettingsV3`). It has
 no v2.5 plugin API or UI compatibility requirement. Upgrade Stash before installing
@@ -262,6 +265,70 @@ Stash calls people **performers**. The catalog's normalized manual field is
 `actors`, an array of names; raw observations retain each source's own keys.
 Import relation mappings use `performer_ids` (Stash IDs), while export mappings
 can use target `actors` with `[.stash.performers[].name]`.
+
+## Performer names, aliases and account links
+
+Version 1.5 matches every imported `actors` name against both Stash canonical
+names and **all** aliases, including single-word usernames. Matching ignores
+case, surrounding whitespace and Unicode composition; it does not use fuzzy or
+substring matches. Several matching aliases on one performer still count as
+one candidate. A canonical-name match does not outrank another performer's alias.
+If multiple performers match, the importer skips that name and logs their IDs,
+names and disambiguations. It neither chooses the first result nor creates
+another performer. Existing scene/image relationships remain intact. Explicit
+`performer_ids` jq mappings continue to take precedence.
+
+An explicit account link can resolve a collision for content from that account.
+The account must occur in the file's captured posts; being somewhere else in a
+joined catalog is insufficient. If two linked performers still match the same
+name on that file, it remains ambiguous. An uploader is not automatically added
+as a depicted performer: the imported metadata must already name that person.
+
+With **Sync performer identities to catalogs** enabled and an export-capable
+sync direction, successful Stash performer merges and identity edits also update
+catalog identities. Association comes from Twitter/X or Reddit **profile URLs**
+on the performers, or from **Performer account links**. Several accounts on the
+same service work the same way as accounts across services. Post URLs, shared
+files/hashes and names alone do not establish an association. A username found
+under multiple stable account IDs requires an explicit choice; duplicate URLs
+on different Stash performers are also reported as conflicts.
+
+For existing merges or accounts without supported profile URLs:
+
+1. Add each account's profile URL to the appropriate Stash performer, or run
+   **Preview performer catalog links** to see name-only candidates and account
+   keys in the task log. Preview is read-only, regardless of sync direction.
+2. Resolve ambiguous cases with **Performer account links**, a native JSON
+   object mapping account keys to Stash performer ID strings. For example:
+
+   ```json
+   {
+     "twitter:id:12345": "42",
+     "reddit:id:t2_abc": "42"
+   }
+   ```
+
+3. Save the setting, preview again, then run **Sync performer catalog links**.
+   It honors dry run and sync direction. This also reconciles accounts added to
+   the catalog since the last performer edit. Removing a setting does not undo
+   an association already applied to the catalog.
+
+The sync joins creator catalogs using the catalog's existing audited link
+operation, labels the joined catalog with the canonical Stash name, and retains
+original account IDs, handles, posts, raw observations and source databases.
+Subreddit collection catalogs stay separate. No media files are renamed or
+deleted. The merge hook includes the original profiles before Stash removes
+them, so discarded source aliases and URLs remain available as identity evidence.
+Old name strings in captured/manual metadata are preserved and can resolve via
+the stored identity; the plugin does not rewrite historical captures.
+
+Identity records and account bindings are stored in plugin-owned tables in
+`registry.sqlite3`, included in normal catalog snapshots. **Performer link
+namespace** scopes IDs to this Stash database; choose a different value when
+connecting a different Stash database. The first actual sync creates these
+tables; previews and imports do not. Failed links can be retried with the sync
+task. Hooks run after Stash commits, so a catalog failure is logged and cannot
+roll back the Stash merge.
 
 ## Validation
 

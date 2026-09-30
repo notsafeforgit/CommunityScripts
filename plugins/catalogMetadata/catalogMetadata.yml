@@ -1,7 +1,7 @@
 apiVersion: 3
 name: Catalog Metadata
 description: Import catalog metadata and map Stash edits back to manual catalog fields
-version: 1.4.0
+version: 1.5.0
 url: https://github.com/notsafeforgit/CommunityScripts/tree/main/plugins/catalogMetadata
 exec:
 - python
@@ -18,7 +18,20 @@ hooks:
   triggeredBy:
   - Scene.Update.Post
   - Image.Update.Post
+- name: sync_performer_catalogs
+  description: Preserve performer identity and join explicitly associated creator accounts
+  triggeredBy:
+  - Performer.Merge.Post
+  - Performer.Update.Post
 tasks:
+- name: Preview performer catalog links
+  description: Report profile URL links, name-only candidates and conflicts without writing anything
+  defaultArgs:
+    mode: preview_performer_links
+- name: Sync performer catalog links
+  description: Apply explicit profile/account associations for existing performers; honors direction and dry run
+  defaultArgs:
+    mode: sync_performer_links
 - name: Refresh tagged items from catalog
   description: Refresh scenes and images tagged _CATALOG_RELOAD, including organized items
   defaultArgs:
@@ -41,6 +54,28 @@ settings:
     type: BOOLEAN
     displayName: Dry run
     default: false
+  sync_performer_catalogs:
+    type: BOOLEAN
+    displayName: Sync performer identities to catalogs
+    description: >-
+      After performer merges or identity edits, join creator catalogs associated through Twitter/X or Reddit
+      profile URLs and explicit account links. Preserves source account IDs, posts, aliases and raw evidence.
+      Requires Stash-to-catalog sync. Shared media and matching names alone never join catalogs.
+    default: true
+  performer_account_links:
+    type: JSON
+    editor: JSON
+    displayName: Performer account links
+    description: >-
+      Map stable catalog account keys to Stash performer ID strings, for example {"twitter:id:12345":"42","reddit:id:t2_abc":"42"}.
+      Overrides ambiguous profile URLs and disambiguates performer names within those accounts on import.
+      Preview performer catalog links reports account keys and conflicts; Sync performer catalog links applies changes.
+    default: {}
+  performer_link_namespace:
+    type: STRING
+    displayName: Performer link namespace
+    description: Stable name for this Stash library's IDs in the catalog. Use a different value for another Stash database; keep this value when restoring this database.
+    default: stash
   filename_title_fallback:
     type: BOOLEAN
     displayName: Use filename when title is missing
@@ -88,7 +123,8 @@ settings:
     default: _CATALOG_RELOAD
   levenshtein_distance_tolerance:
     type: NUMBER
-    displayName: Name matching tolerance
+    displayName: Studio, group and tag name tolerance
+    description: Performer matching always uses exact canonical names and aliases, ignoring case and surrounding whitespace.
     default: 2
   blacklist:
     type: STRING

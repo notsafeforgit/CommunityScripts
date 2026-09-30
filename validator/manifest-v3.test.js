@@ -9,7 +9,7 @@ for (const [name, manifest, expected] of [
   ['legacy manifest', 'name: Legacy\nsettings: {enabled: {displayName: Enabled, type: BOOLEAN}}', true],
   ['v3 native settings', 'apiVersion: 3\nname: Native\nsettings: {mapping: {type: JSON, editor: JQ_MAP, default: {title: .title}}}', true],
   ['v3 browser module', 'apiVersion: 3\nname: Browser\nui: {entry: index.js, assets: {"/": dist}}', true],
-  ['v3 backend notifications', 'apiVersion: 3\nname: Hooks\nhooks: [{name: Deleted, triggeredBy: [File.Destroy.Post, Group.Update.Post]}]', true],
+  ['v3 backend notifications', 'apiVersion: 3\nname: Hooks\nhooks: [{name: Deleted, triggeredBy: [File.Destroy.Post, Group.Update.Post, Performer.Merge.Post]}]', true],
   ['v3 entity preview', 'apiVersion: 3\nname: Preview\nsettings: {mapping: {type: JSON, editor: JQ_MAP, preview: {entity: SCENE}}}', true],
   ['invalid preview entity', 'apiVersion: 3\nname: Invalid\nsettings: {mapping: {editor: JQ, preview: {entity: OTHER}}}', false],
   ['future version', 'apiVersion: 4\nname: Future', false],

@@ -12,6 +12,7 @@ from reParser import RegExParser
 from stashInterface import StashInterface
 from catalogReader import get_reader, mapping_context
 from catalogMappings import CatalogMappings, is_import_notification, preview_update_input
+from catalogPerformers import match_performer, sync_links
 
 
 class CatalogMetadataPlugin:
@@ -271,59 +272,31 @@ class CatalogMetadataPlugin:
 
     def __find_create_performers(self):
         performer_ids = []
-        created_performers = []
-        for actor in self._file_data["actors"]:
-            if not actor:
+        actors = self._file_data.get("actors") or []
+        if not actors:
+            return performer_ids
+        performers = self._stash.gql_allPerformers()
+        reader = get_reader()
+        path = self._get_item_path(self._item_id, self._item_type)
+        for actor in actors:
+            if not isinstance(actor, str) or not actor.strip():
                 continue
-            performers = self._stash.gql_findPerformers(actor)
-            match_direct = False
-            match_alias = False
-            matching_id = None
-            matching_name = None
-            match_count = 0
-            # 1st pass for direct name matches
-            for performer in performers["performers"]:
-                if self.__is_matching(actor, performer["name"]):
-                    if not matching_id:
-                        matching_id = performer["id"]
-                        match_direct = True
-                    match_count += 1
-            # log.LogDebug(
-            #     f"Direct '{actor}' performer search: matching_id: {matching_id}, match_count: {match_count}")
-            # 2nd pass for alias matches
-            if not matching_id and \
-                    config.search_performer_aliases and \
-                    (not config.ignore_single_name_performer_aliases or " " in actor or actor in config.single_name_whitelist):
-                for performer in performers["performers"]:
-                    for alias in performer["alias_list"]:
-                        if self.__is_matching(actor, alias):
-                            if not matching_id:
-                                matching_id = performer["id"]
-                                matching_name = performer["name"]
-                                match_alias = True
-                            match_count += 1
-                # log.LogDebug(
-                #     f"Aliases '{actor}' performer search: matching_id: {matching_id}, matching_name: {matching_name}, match_count: {match_count}")
-            if not matching_id:
-                # Create a new performer when it does not exist
-                if not config.create_missing_performers or config.dry_mode:
-                    log.LogInfo(
-                        f"'{actor}' performer creation prevented by config")
-                else:
-                    new_performer = self._stash.gql_performerCreate(actor)
-                    created_performers.append(actor)
-                    performer_ids.append(new_performer["id"])
+            matching_id, candidates = match_performer(
+                actor, performers, reader, path, self._mappings.settings)
+            if matching_id:
+                if matching_id not in performer_ids:
+                    performer_ids.append(matching_id)
+            elif candidates:
+                details = [{key: p.get(key) for key in ('id', 'name', 'disambiguation')} for p in candidates]
+                log.LogWarning(f"Skipped ambiguous performer {actor!r} on {self._item_type} {self._item_id}: {json.dumps(details)}. Add an explicit performer account link to resolve it.")
+            elif config.create_missing_performers and not config.dry_mode:
+                created = self._stash.gql_performerCreate(actor.strip())
+                if created:
+                    performer_ids.append(str(created['id']))
+                    # The cached index must include new names for the next item.
+                    performers.append({**created, 'name': actor.strip(), 'alias_list': []})
             else:
-                performer_ids.append(matching_id)
-                log.LogDebug(f"Matched existing performer '{actor}' with \
-                    id {matching_id} name {matching_name or actor} \
-                    (direct: {match_direct}, alias: {match_alias}, match_count: {match_count})")
-                if match_count > 1:
-                    log.LogInfo(f"Linked scene with title '{self._file_data['title']}' to existing \
-                        performer '{actor}' (id {matching_id}). Attention: {match_count} matches \
-                        were found. Check to de-duplicate your performers and their aliases...")
-        if created_performers:
-            log.LogInfo(f"Created missing performers '{created_performers}'")
+                log.LogInfo(f"No exact canonical name or alias for {actor!r}; performer creation disabled.")
         return performer_ids
 
     def __find_create_studio(self) -> str:
@@ -587,7 +560,21 @@ class CatalogMetadataPlugin:
     def process(self):
         if self._stash.get_mode() == "preview":
             return self.preview()
+        elif self._stash.get_mode() in ('preview_performer_links', 'sync_performer_links'):
+            preview = self._stash.get_mode() == 'preview_performer_links'
+            if not preview and (self._mappings.direction not in ('both', 'export') or not self._mappings.settings.get('sync_performer_catalogs', True)):
+                log.LogInfo('Performer catalog synchronization is disabled in plugin settings.')
+                return None
+            return sync_links(get_reader(), self._stash, self._mappings.settings, preview=preview)
         elif self._stash.get_mode() == "normal":
+            hook = self._stash.get_hook_context()
+            if hook.get('type', '').startswith('Performer.'):
+                if self._mappings.direction not in ('both', 'export') or not self._mappings.settings.get('sync_performer_catalogs', True):
+                    return None
+                fields = hook.get('inputFields') or []
+                if hook['type'] == 'Performer.Update.Post' and fields and not set(fields) & {'name', 'aliases', 'alias_list', 'urls', 'disambiguation'}:
+                    return None
+                return sync_links(get_reader(), self._stash, self._mappings.settings, hook)
             item_type = self._stash.get_item_type()
             item_id = self._stash.get_item_id() or self._stash.get_target_id()
             if not item_id:
@@ -633,4 +620,4 @@ if __name__ == '__main__':
         result = catalogMetadataPlugin.process()
     except Exception as error:
         stash_interface.exit_plugin(err=str(error))
-    stash_interface.exit_plugin(result if stash_interface.get_mode() == 'preview' else "Successful!")
+    stash_interface.exit_plugin(result if stash_interface.get_mode() in ('preview', 'preview_performer_links', 'sync_performer_links') else "Successful!")

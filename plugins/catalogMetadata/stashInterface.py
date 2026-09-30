@@ -11,6 +11,7 @@ class StashInterface:
 
     def __init__(self, fragment):
         self._start = time.time()
+        self._performers = None
         self._fragment = fragment
         self._mode = self._fragment['args'].get("mode") or "normal"
         self._fragment_server = self._fragment["server_connection"]
@@ -483,37 +484,19 @@ class StashInterface:
         result = self.__gql_call(query, variables)
         return result.get("movieCreate")
 
-    def gql_findPerformers(self, name):
-        query = """
-        query findPerformers($performer_filter: PerformerFilterType, $filter: FindFilterType) {
-            findPerformers(performer_filter: $performer_filter, filter: $filter) {
-                performers {
-                    id
-                    name
-                    alias_list
+    def gql_allPerformers(self):
+        # Fetch once per invocation. Exact Unicode matching and collisions must
+        # include canonical names AND aliases, independent of SQL LIKE rules.
+        if self._performers is None:
+            result = self.__gql_call('''query {
+                findPerformers(filter: {per_page: -1}) {
+                    performers { id name disambiguation aliases { alias } urls }
                 }
-            }
-        }
-        """
-        variables = {
-            "performer_filter": {
-                "name": {
-                    "value": name,
-                    "modifier": "INCLUDES"
-                },
-                "OR": {
-                    "aliases": {
-                        "value": name,
-                        "modifier": "INCLUDES"
-                    }
-                }
-            },
-            "filter": {
-                "per_page": -1
-            },
-        }
-        result = self.__gql_call(query, variables)
-        return result.get("findPerformers")
+            }''')
+            self._performers = result['findPerformers']['performers']
+            for performer in self._performers:
+                performer['alias_list'] = [a['alias'] for a in performer.pop('aliases')]
+        return self._performers
 
     def gql_findStudios(self, name):
         query = """
@@ -610,7 +593,7 @@ class StashInterface:
     def __gql_call(self, query, variables=None):
         # Preview has a separate call path. Guard all of this client's write
         # methods as well, so a future refactor cannot silently submit a mutation.
-        if self._mode == 'preview' and not query.lstrip().startswith('query'):
+        if self._mode in ('preview', 'preview_performer_links') and not query.lstrip().startswith('query'):
             raise RuntimeError('GraphQL mutations are disabled during mapping previews')
         # Session cookie for authentication (supports API key for CLI tests)
         graphql_port = str(self._fragment_server["Port"])

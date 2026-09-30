@@ -62,20 +62,10 @@ load_tags_from = "both"
 # Do not change config below unless you are absolutely sure of what you do...
 ###############################################################################
 
-# Wether to Looks for existing entries also in aliases
-search_performer_aliases = True
+# Studio matching preferences; performers always use exact names and aliases.
 search_studio_aliases = True
 
 levenshtein_distance_tolerance = 2
-
-# "Single names" means performers with only one word as name like "Anna" or "Siri".
-# If true, single names aliases will be ignored:
-# => only the "main" performer name determines if a performer exists or is created.
-# Only relevant if search_performer_aliases is True.
-ignore_single_name_performer_aliases = True
-
-# If the above is set to true, it can be overruled for some allowed (whitelisted) names
-single_name_whitelist = ["MJFresh", "JMac", "Mazee"]
 
 ###############################################################################
 # Filename rules in catalogMetadata.json provide a fallback.

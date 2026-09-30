@@ -223,6 +223,7 @@
         "Group.Destroy.Post",
         "Performer.Create.Post",
         "Performer.Update.Post",
+                    "Performer.Merge.Post",
         "Performer.Destroy.Post",
         "Studio.Create.Post",
         "Studio.Update.Post",
