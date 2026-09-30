@@ -1,7 +1,7 @@
 apiVersion: 3
 name: Catalog Metadata
 description: Import catalog metadata and map Stash edits back to manual catalog fields
-version: 1.8.0
+version: 1.9.0
 url: https://github.com/notsafeforgit/CommunityScripts/tree/main/plugins/catalogMetadata
 exec:
 - python
@@ -161,10 +161,10 @@ settings:
     editor: JQ_MAP
     preview:
       entity: SCENE
-      description: Simulates a metadata edit using current values. Edit .fields and .input in the sample JSON to test specific changes. .settings contains saved settings. Shows jq output before unchanged-value filtering; nothing is written.
+      description: Simulates a metadata edit using current values. Edit .fields and .input in the sample JSON to test specific changes. The refresh tag is omitted from .stash.tags. Shows jq output before unchanged-value filtering; nothing is written.
     displayName: Scene export mappings
     description: 'Map each target catalog manual field to a jq expression. Input also includes .fields (changed Stash
-      fields), .input, and .settings. Supported targets: title, details, date, director, studio, movie, actors,
+      fields) and .input. The refresh tag is omitted from .stash.tags. Supported targets: title, details, date, director, studio, movie, actors,
       tags, urls. Empty skips; null removes an override and inherits source metadata.'
     default:
       title: select(.fields | index("title")) | .stash.title | select(type == "string" and length > 0)
@@ -173,8 +173,7 @@ settings:
       urls: select(.fields | index("urls") or index("url")) | .stash.urls | select(length > 0)
       studio: select(.fields | index("studio_id")) | .stash.studio.name | select(type == "string" and length > 0)
       actors: select(.fields | index("performer_ids")) | [.stash.performers[].name] | select(length > 0)
-      tags: select(.fields | index("tag_ids")) | .settings.reload_tag as $reload | [.stash.tags[].name | select(.
-        != $reload)] | select(length > 0)
+      tags: select(.fields | index("tag_ids")) | [.stash.tags[].name] | select(length > 0)
       director: select(.fields | index("director")) | .stash.director | select(type == "string" and length > 0)
       movie: select(.fields | index("groups") or index("movies")) | .stash.groups[0].group.name | select(type ==
         "string" and length > 0)
@@ -193,10 +192,10 @@ settings:
     editor: JQ_MAP
     preview:
       entity: IMAGE
-      description: Simulates a metadata edit using current values. Edit .fields and .input in the sample JSON to test specific changes. .settings contains saved settings. Shows jq output before unchanged-value filtering; nothing is written.
+      description: Simulates a metadata edit using current values. Edit .fields and .input in the sample JSON to test specific changes. The refresh tag is omitted from .stash.tags. Shows jq output before unchanged-value filtering; nothing is written.
     displayName: Image export mappings
     description: 'Map each target catalog manual field to a jq expression. Input also includes .fields (changed Stash
-      fields), .input, and .settings. Supported targets: title, details, date, director, studio, movie, actors,
+      fields) and .input. The refresh tag is omitted from .stash.tags. Supported targets: title, details, date, director, studio, movie, actors,
       tags, urls. Empty skips; null removes an override and inherits source metadata.'
     default:
       title: select(.fields | index("title")) | .stash.title | select(type == "string" and length > 0)
@@ -205,5 +204,4 @@ settings:
       urls: select(.fields | index("urls") or index("url")) | .stash.urls | select(length > 0)
       studio: select(.fields | index("studio_id")) | .stash.studio.name | select(type == "string" and length > 0)
       actors: select(.fields | index("performer_ids")) | [.stash.performers[].name] | select(length > 0)
-      tags: select(.fields | index("tag_ids")) | .settings.reload_tag as $reload | [.stash.tags[].name | select(.
-        != $reload)] | select(length > 0)
+      tags: select(.fields | index("tag_ids")) | [.stash.tags[].name] | select(length > 0)

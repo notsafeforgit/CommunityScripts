@@ -63,6 +63,7 @@ class PreviewTests(unittest.TestCase):
         before = self.catalog_hashes()
         for kind in ('scene', 'image'):
             context = self.preview(kind, 'import', sync_direction='export', create_missing_performers=True)
+            self.assertNotIn('settings', context)
             self.assertEqual(context['catalog']['actors'], ['Folder performer'])
             self.assertEqual(context['catalog']['details'], 'Hola')
             self.assertEqual(context['stash']['title'], 'Stash title')
@@ -70,11 +71,14 @@ class PreviewTests(unittest.TestCase):
             self.assertEqual(evaluate({'title': '.observations[-1].payload.content | ascii_upcase'}, context), {'title': 'HOLA'})
         self.assertEqual(before, self.catalog_hashes())
 
-    def test_export_preview_simulates_fields_and_reads_saved_settings_without_writes(self):
+    def test_export_preview_simulates_fields_without_exposing_plugin_settings_or_writing(self):
         self.capture()
         before = self.catalog_hashes()
         for kind in ('scene', 'image'):
             context = self.preview(kind, 'export', sync_direction='import')
+            self.assertNotIn('settings', context)
+            self.assertEqual(context['stash']['tags'], [{'id': '9', 'name': 'Chosen'}])
+            self.assertEqual(context['input']['tag_ids'], ['8', '9'])
             self.assertEqual(context['input']['performer_ids'], ['7'])
             self.assertEqual(context['input']['custom_fields'], {'full': {'catalog_title': 'Custom title'}})
             self.assertIn('performer_ids', context['fields'])
@@ -86,6 +90,17 @@ class PreviewTests(unittest.TestCase):
             context['fields'] = ['performer_ids']
             self.assertEqual(evaluate(SETTINGS[f'{kind}_export_mappings'], context), {'actors': ['Alice']})
         self.assertEqual(before, self.catalog_hashes())
+
+    def test_export_preview_honors_custom_refresh_tag_without_changing_the_entity(self):
+        self.capture()
+        item = {'id': '42', 'files': [{'path': str(self.path)}], 'visual_files': [{'path': str(self.path)}],
+                'tags': [{'id': '8', 'name': 'Refresh now'}, {'id': '9', 'name': 'Chosen'}]}
+        for kind in ('scene', 'image'):
+            context = self.preview(kind, 'export', item=item, reload_tag='Refresh now')
+            self.assertNotIn('settings', context)
+            self.assertEqual(evaluate({'tags': SETTINGS[f'{kind}_export_mappings']['tags']}, context), {'tags': ['Chosen']})
+            self.assertEqual(item['tags'][0]['name'], 'Refresh now')
+            self.assertEqual(len(item['tags']), 2)
 
     def test_shared_post_preview_exposes_attachment_patches_without_repeating_body(self):
         for num in (1,2,3):

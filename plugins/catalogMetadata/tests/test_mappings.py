@@ -101,6 +101,32 @@ class MappingTests(unittest.TestCase):
             result = mappings.export_item('image', item, self.path, {'inputFields': ['performer_ids', 'studio_id', 'tag_ids']})
         self.assertEqual(result['fields'], {'actors': ['Alice'], 'studio': 'Studio', 'tags': ['Chosen']})
 
+    def test_export_filters_custom_refresh_tag_for_both_entities_without_exposing_settings(self):
+        self.capture()
+        item = {'id': '42', 'tags': [{'id': '1', 'name': 'Refresh now'}, {'id': '2', 'name': 'Keep'}]}
+        hook = {'inputFields': ['tag_ids'], 'input': {'tag_ids': ['1', '2']}}
+        for kind in ('scene', 'image'):
+            mappings = self.mappings(reload_tag='Refresh now', **{f'{kind}_export_mappings': {'tags': '[.stash.tags[].name]'}})
+            context = mappings.export_context(self.reader, item, self.path, hook)
+            self.assertNotIn('settings', context)
+            self.assertEqual(evaluate(mappings.mappings[f'{kind}_export_mappings'], context), {'tags': ['Keep']})
+            self.assertEqual(context['input'], hook['input'])
+            with self.reader_patch():
+                mappings.export_item(kind, item, self.path, hook)
+            self.assertEqual(self.reader.overrides(self.path)['tags'], ['Keep'])
+        self.assertEqual(item['tags'][0]['name'], 'Refresh now')
+        self.assertEqual(len(item['tags']), 2)
+
+    def test_exporting_only_the_refresh_marker_leaves_existing_catalog_tags_intact(self):
+        self.capture()
+        edit(self.store, self.path, {'tags': ['Keep']})
+        mappings = self.mappings()
+        item = {'id': '42', 'tags': [{'name': '_CATALOG_RELOAD'}]}
+        for kind in ('scene', 'image'):
+            with self.reader_patch():
+                self.assertIsNone(mappings.export_item(kind, item, self.path, {'inputFields': ['tag_ids']}))
+        self.assertEqual(self.reader.overrides(self.path)['tags'], ['Keep'])
+
     def test_custom_export_extracts_custom_fields_and_can_remove_override(self):
         self.capture()
         edit(self.store, self.path, {'details': 'Manual caption'})

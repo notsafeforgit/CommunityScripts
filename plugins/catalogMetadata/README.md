@@ -211,10 +211,16 @@ Both directions receive:
 - `.path` and `.relative_path`: selected media pathname.
 
 Exports additionally receive `.fields` (hook input field names), `.input`
-(original mutation input, or `{}` for specialized updates) and `.settings`.
+(original mutation input, or `{}` for specialized updates).
 Custom export expressions should check `.fields` when only particular edits
 should cause a write. Defaults do this, omit blank values, and exclude the
 configured refresh tag from exported tags.
+
+Since version 1.9, plugin settings are internal and are not included in jq input.
+Exports and export previews omit the configured refresh marker from `.stash.tags`
+before jq runs. Other Stash values and the original `.input` remain intact.
+The tag mapping can simply read `[.stash.tags[].name]`; custom expressions should
+use the documented entity, catalog and edit data rather than `.settings`.
 
 An expression must yield zero or one value. `empty` leaves the destination
 untouched, including disabling an import field's standard mapping. `null` clears
@@ -258,7 +264,8 @@ errors instead of running an import.
   `.input`; no real edit has occurred. Edit `.fields` (for example `["title"]`)
   and `.input` to try a specific event. To simulate a new value, also edit the
   corresponding `.stash` value, since that represents the post-edit snapshot.
-  `.settings` contains saved settings. Results show jq output before the normal
+  `.stash.tags` omits the configured refresh marker. Plugin settings are not
+  included in the sample input. Results show jq output before the normal
   unchanged-value filter and catalog field validation, so a real export may
   skip a value already present or reject an unsupported target/value.
 

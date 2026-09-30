@@ -101,8 +101,15 @@ class CatalogMappings:
         return payload
 
     def export_context(self, reader, item, path, hook):
-        context = mapping_context(reader, path, item, reader.metadata(path))
-        context.update({'fields': hook.get('inputFields') or [], 'input': hook.get('input') or {}, 'settings': self.settings})
+        # The refresh marker is an internal command, so omit it from the export
+        # view before evaluating either previews or real mappings. Keep the
+        # original Stash item and mutation input intact.
+        export_item = dict(item)
+        if isinstance(item.get('tags'), list):
+            reload_tag = self.settings.get('reload_tag', config.reload_tag)
+            export_item['tags'] = [tag for tag in item['tags'] if tag.get('name') != reload_tag]
+        context = mapping_context(reader, path, export_item, reader.metadata(path))
+        context.update({'fields': hook.get('inputFields') or [], 'input': hook.get('input') or {}})
         return context
 
     def export_item(self, kind, item, path, hook):
