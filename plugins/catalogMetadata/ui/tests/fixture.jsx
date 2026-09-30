@@ -78,11 +78,21 @@ const accounts = [
   },
 ];
 const params = new URLSearchParams(location.search);
+const bindingState = params.get("binding");
+let stashBindings = bindingState === "none" ? [] : [
+  {
+    namespace: bindingState === "other-library" ? "other-library" : "stash",
+    performer_id: bindingState === "missing" ? "99" : bindingState === "redirect" ? "1" : "2",
+    name: "Sam",
+    redirect_to: bindingState === "redirect" ? "2" : null,
+    available: !bindingState,
+  },
+];
 const blocked = params.has("dry")
   ? "Dry run is enabled. Turn it off in Catalog Metadata settings to apply links."
   : null;
 let failList = params.has("fail-list");
-let failApply = true;
+let failApply = !bindingState;
 const requests = [];
 window.reviewRequests = requests;
 function catalogPerformer() {
@@ -93,15 +103,7 @@ function catalogPerformer() {
     urls: [],
     accounts: accounts.filter((a) => a.identity_id === uuid),
     merged_ids: [],
-    stash_bindings: [
-      {
-        namespace: "stash",
-        performer_id: "2",
-        name: "Sam",
-        redirect_to: null,
-        available: true,
-      },
-    ],
+    stash_bindings: stashBindings,
   };
 }
 const client = new ApolloClient({
@@ -170,6 +172,18 @@ const client = new ApolloClient({
             return;
           }
           const account = accounts.find((a) => a.account_key === input.account_key);
+          if (action === "bind") {
+            stashBindings = [
+              ...stashBindings.filter((binding) => binding.namespace !== "stash" || binding.performer_id !== input.performer_id),
+              {
+                namespace: "stash",
+                performer_id: input.performer_id,
+                name: people.find((person) => person.id === input.performer_id).name,
+                redirect_to: null,
+                available: true,
+              },
+            ];
+          }
           if (account)
             Object.assign(account, {
               identity_id: action === "unlink" ? null : uuid,

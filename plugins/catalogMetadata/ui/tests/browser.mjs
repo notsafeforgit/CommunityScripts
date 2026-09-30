@@ -102,6 +102,8 @@ try {
   await expect(
     page.getByText("7c8c6ed6-a995-4f73-86ba-5db62af7d1e2", { exact: true }),
   ).toBeVisible();
+  await expect(page.getByText("Linked to Stash", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Link Stash performer", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Manage account", exact: true }).first().click();
   await page.getByRole("button", { name: "Preview unlink", exact: true }).click();
   await expect(page.getByRole("region", { name: "Proposed changes" })).toContainText(
@@ -118,6 +120,16 @@ try {
     page.getByText("Account unlinked. Automatic matching will respect this choice."),
   ).toBeVisible();
   await expect(page.getByText("1 associated account")).toBeVisible();
+  // Removing an account does not remove the identity's Stash binding.
+  await expect(page.getByText("Linked to Stash", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Link Stash performer", exact: true })).toHaveCount(0);
+  // Historical and other-library bindings must not block linking this library.
+  for (const binding of ["other-library", "missing", "redirect", "none"]) {
+    await page.goto(`http://127.0.0.1:3028/stash/catalogMetadata/review?binding=${binding}`);
+    await page.getByRole("tab", { name: /Catalog performers/ }).click();
+    await expect(page.getByRole("button", { name: "Link Stash performer", exact: true })).toBeVisible();
+    await expect(page.getByText("Linked to Stash", { exact: true })).toHaveCount(0);
+  }
   await page.getByRole("button", { name: "Link Stash performer", exact: true }).click();
   await picker.fill("Second person");
   await page.getByRole("option", { name: /Sam \(Second person\)/ }).click();
@@ -129,7 +141,7 @@ try {
     await page.evaluate(
       () => window.reviewRequests.filter((r) => r.name === "PluginMutationV3").length,
     ),
-    3,
+    0,
   );
   assert.ok(
     await page.evaluate(() =>
@@ -138,7 +150,12 @@ try {
         .every((r) => !r.input.catalog_id),
     ),
   );
+  await page.getByRole("button", { name: "Apply reviewed link" }).click();
+  await expect(page.getByText("Linked to Stash", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Link Stash performer", exact: true })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByText("Linked to Stash", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Link Stash performer", exact: true })).toHaveCount(0);
   await page.goto("http://127.0.0.1:3028/stash/catalogMetadata/review?dry");
   await page.getByRole("button", { name: "Review account", exact: true }).click();
   await picker.fill("Second person");
@@ -164,7 +181,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.log(
-    "Catalog review browser checks passed: separate sources, UUID groups, individual link/unlink, binding preview, stale preview, dry run, mobile, base path.",
+    "Catalog review browser checks passed: separate sources, UUID groups, individual link/unlink, binding state and apply, stale preview, dry run, mobile, base path.",
   );
 } catch (error) {
   if (page) {

@@ -623,7 +623,9 @@ function register(host) {
                   )
                 },
                 msg("manage_account", "Manage account")
-              ))))), /* @__PURE__ */ React.createElement(CardFooter, null, /* @__PURE__ */ React.createElement(
+              ))))), /* @__PURE__ */ React.createElement(CardFooter, null, identity.stash_bindings.some(
+                (binding) => binding.available
+              ) ? /* @__PURE__ */ React.createElement(Badge, { variant: "secondary" }, msg("linked_to_stash", "Linked to Stash")) : /* @__PURE__ */ React.createElement(
                 Button,
                 {
                   type: "button",

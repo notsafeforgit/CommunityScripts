@@ -1094,17 +1094,25 @@ export default function register(host) {
                                     ))}
                                   </CardContent>
                                   <CardFooter>
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      disabled={busy || loading}
-                                      onClick={() => {
-                                        setSelected({ identity });
-                                        setNotice(null);
-                                      }}
-                                    >
-                                      {msg("manage_binding", "Link Stash performer")}
-                                    </Button>
+                                    {identity.stash_bindings.some(
+                                      (binding) => binding.available,
+                                    ) ? (
+                                      <Badge variant="secondary">
+                                        {msg("linked_to_stash", "Linked to Stash")}
+                                      </Badge>
+                                    ) : (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        disabled={busy || loading}
+                                        onClick={() => {
+                                          setSelected({ identity });
+                                          setNotice(null);
+                                        }}
+                                      >
+                                        {msg("manage_binding", "Link Stash performer")}
+                                      </Button>
+                                    )}
                                   </CardFooter>
                                 </Card>
                               ))}

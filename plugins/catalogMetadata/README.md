@@ -416,6 +416,10 @@ evidence. Unlabeled catalog hashes are no longer presented as additional entitie
 **Catalog performers** presents a unified view of each performer’s accounts,
 aliases, Stash bindings and source folders. **Manage account** reassigns/unlinks
 one account without merging or splitting the source databases.
+Cards with a current performer link in this Stash library show **Linked to Stash**.
+**Link Stash performer** is available only when no current link exists here;
+links in other libraries, deleted performers, and historical merge redirects
+do not hide that action.
 
 Browsing and previewing are read-only. Apply honors dry run, sync direction and
 identity-sync settings. It rechecks current data after obtaining the writer lock,
