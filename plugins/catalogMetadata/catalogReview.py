@@ -24,7 +24,8 @@ def snapshot(reader, stash):
 def account_view(account):
     return {**{key: account[key] for key in ('account_key', 'platform', 'source_id', 'identity_basis',
                                            'handles', 'catalog_id', 'catalog_label', 'directories', 'profile_urls')},
-            'account_keys': account_aliases.account_keys(account)}
+            'account_keys': account_aliases.account_keys(account), 'identifiers': account.get('identifiers', []),
+            'catalog_ids': account.get('catalog_ids', [account['catalog_id']])}
 
 
 def identity_views(state, accounts, live, namespace):
@@ -61,13 +62,9 @@ def list_reviews(reader, stash):
         row = rows[key] = {**account_view(account), 'label': ', '.join(account['handles']) or account['source_id'] or key,
                            'evidence': [], 'conflicts': [], 'candidate_ids': set(), 'status': 'unmatched',
                            'performer_id': None, 'identity_id': None, 'identity_name': None}
-        if account['source_id']:
-            references[(account['platform'], 'id', str(account['source_id']))].add(key)
-        for url in account['profile_urls']:
-            from scrape_catalog.profiles import canonical_url
-            references[('url', 'profile', canonical_url(url))].add(key)
-        for handle in account['handles']:
-            references[(account['platform'], 'handle', performers_api.name_key(handle))].add(key)
+        from scrape_catalog.accounts import references as account_references
+        for ref in account_references(account):
+            references[ref].add(key)
         association = state['accounts'].get(key)
         if association:
             if not association['identity_id']:

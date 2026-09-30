@@ -160,7 +160,7 @@ class RedditAliasTests(unittest.TestCase):
         self.assertEqual(result['counts'], {'conflict': 1})
         self.assertEqual(result['accounts'][0]['candidate_ids'], ['1', '2'])
 
-    def test_multiple_source_ids_mismatched_authors_and_mutable_handles_are_not_combined(self):
+    def test_multiple_source_ids_and_mismatched_authors_are_not_combined(self):
         first = self.pair()
         second = self.capture('third.jpg', 't2_30')
         self.store.link(second, first, 'Historical explicit catalog join')
@@ -175,8 +175,8 @@ class RedditAliasTests(unittest.TestCase):
         self.capture('twitter-old.jpg', handle='Alice', platform='twitter')
         self.capture('twitter-new.jpg', '123', handle='Alice', platform='twitter')
         accounts = performers.catalog_accounts(self.reader)
-        self.assertIn('twitter:handle:alice', accounts)
-        self.assertIn('twitter:id:123', accounts)
+        self.assertNotIn('twitter:handle:alice', accounts)
+        self.assertEqual(set(accounts['twitter:id:123']['account_keys']), {'twitter:handle:alice', 'twitter:id:123'})
 
     def test_new_id_capture_invalidates_handle_only_preview(self):
         self.capture('old.jpg')
@@ -201,6 +201,53 @@ class RedditAliasTests(unittest.TestCase):
         self.assertEqual(result['accounts'][0]['identity_id'], uid)
         self.assertEqual(set(result['accounts'][0]['account_keys']), {HANDLE, SOURCE})
         self.assertEqual(self.store.db(cid).execute('SELECT count(*) FROM accounts').fetchone()[0], 1)
+
+
+class ServiceAliasTests(unittest.TestCase):
+    setUp = test_plugin.CatalogPluginTests.setUp
+    stash = test_review.ReviewTests.stash
+    apply = test_review.ReviewTests.apply
+    hashes = test_review.ReviewTests.hashes
+
+    def test_supported_service_reviews_link_unlink_and_import_with_aliases(self):
+        cases = [
+            ('instagram', {'category':'instagram','owner_id':'123','username':'alice','post_id':'one'}, 'instagram:id:123', 'https://instagram.com/alice'),
+            ('onlyfans', {'category':'coomer','service':'onlyfans','user':'alice','username':'alice','id':'one'}, 'mirror:coomer:onlyfans:user:alice', 'https://onlyfans.com/alice'),
+            ('fansly', {'category':'coomer','service':'fansly','user':'123','username':'alice','id':'one'}, 'mirror:coomer:fansly:user:123', 'https://fansly.com/alice'),
+            ('patreon', {'category':'kemono','service':'patreon','user':'123','username':'alice','id':'one'}, 'mirror:kemono:patreon:user:123', 'https://patreon.com/alice'),
+        ]
+        people=[performer(1,'Alice'),performer(2,'Other',['Alice'])]
+        for platform, data, source_key, url in cases:
+            with self.subTest(platform=platform):
+                rel=f'alice, {platform}/one.jpg'
+                path=self.media/rel;path.parent.mkdir();path.write_bytes(b'image')
+                cid=self.store.inventory_file(rel)
+                self.store.capture(data,rel)
+                stash=self.stash(people)
+                key=f'{platform}:handle:alice'
+                before=self.hashes()
+                with patch.object(stash,'gql_allPerformers',side_effect=AssertionError('Full Stash scan')):
+                    preview,_=review.review_link(self.reader,stash,{'account_key':key,'performer_id':'1'})
+                self.assertEqual(preview['account']['account_key'],source_key)
+                self.assertEqual(self.hashes(),before)
+                result=self.apply(stash,account_key=key,performer_id='1')
+                self.assertEqual(set(result['updates']['accounts'][0]['account_keys']),{key,source_key})
+                chosen,_=performers.match_performer('Alice',people,self.reader,path,{})
+                self.assertEqual(chosen,'1')
+                self.apply(stash,account_key=source_key,action='unlink')
+                performers.sync_links(self.reader,stash,{})
+                row=next(a for a in review.list_reviews(self.reader,stash)['accounts'] if a['account_key']==source_key)
+                self.assertEqual(row['status'],'unlinked')
+
+    def test_mirror_profile_matches_its_namespace_and_does_not_claim_native_numeric_id(self):
+        rel='alice, patreon/one.jpg';path=self.media/rel;path.parent.mkdir();path.write_bytes(b'image')
+        self.store.capture({'category':'kemono','service':'patreon','user':'123','username':'alice','id':'one'},rel)
+        people=[performer(1,'Mirror',urls=['https://kemono.cr/patreon/user/123']),
+                performer(2,'Native',urls=['https://patreon.com/user?u=123'])]
+        row,=review.list_reviews(self.reader,self.stash(people))['accounts']
+        self.assertEqual(row['status'],'proposed')
+        self.assertEqual(row['candidate_ids'],['1'])
+        self.assertEqual(row['identity_basis'],'mirror-user')
 
 
 if __name__ == '__main__':

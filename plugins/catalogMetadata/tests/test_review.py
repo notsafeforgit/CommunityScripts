@@ -252,8 +252,8 @@ class ReviewTests(unittest.TestCase):
         self.store.registry.commit()
         self.store.link(selected, target, 'Historical catalog join')
         stash = self.stash([performer(1, 'One')])
-        with self.assertRaisesRegex(ValueError, 'individual source account'):
-            review.review_link(self.reader, stash, {'account_key': 'twitter:id:10', 'performer_id': '1'})
+        report, _ = review.review_link(self.reader, stash, {'account_key': 'twitter:id:10', 'performer_id': '1'})
+        self.assertEqual(report['account']['catalog_id'], target)
         result = self.apply(stash, account_key='twitter:id:10', performer_id='1', catalog_ids=[selected])
         self.assertEqual(result['updates']['accounts'][0]['catalog_id'], target)
         with self.assertRaises(ValueError):

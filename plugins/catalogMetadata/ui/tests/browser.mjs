@@ -218,7 +218,7 @@ try {
   await expect(page.getByText("reddit:handle:elsewhere", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Review elsewhere", exact: true }).click();
   await page.getByRole("button", { name: "Preview unlink", exact: true }).click();
-  await expect(page.getByRole("region", { name: "Proposed changes" })).toContainText("This decision applies to both keys.");
+  await expect(page.getByRole("region", { name: "Proposed changes" })).toContainText("This decision applies to every listed key.");
   await page.getByRole("button", { name: "Close review", exact: true }).click();
   await page.getByRole("tab", { name: /Catalog performers/ }).click();
   await expect(page.getByText("1 associated account", { exact: true })).toBeVisible();

@@ -86,6 +86,9 @@ export default function register(host) {
             )}
           </p>
         )}
+        {account.identity_basis === "mirror-user" && (
+          <p>{msg("mirror_identifier", "The source identifier belongs to a Coomer or Kemono account record. Its captured names are aliases; it is not assumed to be a native service ID.")}</p>
+        )}
         {!account.source_id && (
           <p>
             {msg(
@@ -118,6 +121,16 @@ export default function register(host) {
                   .filter((key) => key !== account.account_key)
                   .map((key) => <code key={key}>{key}</code>)}
               </p>
+            )}
+            {(account.identifiers?.length ?? 0) > 0 && (
+              <ul>
+                {account.identifiers.map((item, index) => (
+                  <li key={index}>
+                    <code>{item.namespace} · {item.kind}: {item.value}</code>
+                    {item.handle && <> · {item.handle}</>}
+                  </li>
+                ))}
+              </ul>
             )}
             <p>
               {msg("source_catalog", "Source catalog ID")}:{" "}
@@ -168,7 +181,7 @@ export default function register(host) {
                     )}
                     {item.ambiguous && (
                       <span>
-                        {msg("reused", "This handle appears on multiple account IDs.")}
+                        {msg("reused", "This profile reference matches multiple source accounts.")}
                       </span>
                     )}
                   </li>
@@ -220,8 +233,8 @@ export default function register(host) {
           item.stash_bindings.some((link) => link.available && link.performer_id === choice.performer_id),
         );
         const catalog_ids = [...new Set([
-          row?.catalog_id,
-          ...related.flatMap((item) => item.accounts.map((account) => account.catalog_id)),
+          ...(row?.catalog_ids ?? [row?.catalog_id]),
+          ...related.flatMap((item) => item.accounts.flatMap((account) => account.catalog_ids ?? [account.catalog_id])),
         ].filter(Boolean))].sort();
         const next = await host.operations.query("review_link", { ...choice, catalog_ids });
         if (alive.current) setPreview(next);
@@ -580,7 +593,7 @@ export default function register(host) {
               )}
               {(preview.account?.account_keys?.length ?? 0) > 1 && (
                 <p>
-                  {msg("same_reddit_account", "The Reddit username and captured ID identify this same account. This decision applies to both keys.")}
+                  {msg("same_source_account", "Captured evidence connects these identifiers to the same account. This decision applies to every listed key.")}
                 </p>
               )}
               {preview.associated_accounts.length > 0 && (

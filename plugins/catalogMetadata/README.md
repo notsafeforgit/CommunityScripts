@@ -31,7 +31,7 @@ Version 1.2 and later declare `apiVersion: 3` and require the Stash fork's v3 pl
 (`pluginSettingsV3`, `pluginEvaluateMappings`, `updatePluginSettingsV3`). It has
 no v2.5 plugin API or UI compatibility requirement. Upgrade Stash before installing
 this version: older Stash builds reject the versioned manifest.
-Version 1.8 requires `scrape-catalog` 0.3.0 or later for shared post metadata and
+Version 1.14 requires `scrape-catalog` 0.5.0 or later for shared post metadata and
 catalog-owned performer UUIDs. Its `ui.entry` provides Catalog review through the shared v3 UI host.
 No Python jq package or jq executable is needed at runtime.
 
@@ -400,18 +400,27 @@ in plugin settings.
 evidence. Unlabeled catalog hashes are no longer presented as additional entities;
 **Show source identifiers** reveals the account key and source catalog ID.
 
-Since version 1.13, a legacy Reddit username key and its captured `t2_` account
-ID appear as one account when the same source catalog records that username
-against exactly one ID. Existing links under either key remain effective for
-imports, review and synchronization. Both original keys remain visible under
-**Show source identifiers**; applying a link or unlink covers both. Browsing
-does not rewrite source metadata or registry records. New captures use this same
-rule automatically, including previously reviewed inventory-only folders.
+Since version 1.14, account resolution lives in the shared catalog library.
+Captured ID/handle pairings reconcile Instagram, Patreon, OnlyFans, Fansly,
+Reddit, Twitter/X, Bluesky, TikTok and other extractors with author identifiers.
+The original source account keys remain visible under **Show source identifiers**;
+links, unlinks, imports and synchronization apply to the complete alias group.
+Different services, different known IDs and contradictory saved decisions stay
+separate. A folder or matching display name alone never establishes an account.
+A handle seen on multiple IDs remains ambiguous even during a targeted review.
 
-Different source IDs, mismatched usernames and contradictory saved associations
-remain conflicts. A shared folder alone never establishes identity. This rule
-is specific to [Reddit's permanent usernames](https://support.reddithelp.com/hc/en-us/articles/204579479-Can-I-change-my-username); mutable handles on Twitter/X and
-other services retain their existing ambiguity checks.
+Mirror identifiers retain their Coomer/Kemono namespace and capture provenance.
+New captures use keys such as `mirror:coomer:fansly:user:123`, while old unscoped
+keys stay readable and their saved associations remain effective. A mirror user
+key is not assumed to be a native service ID. Mirror display-name evidence only
+reconciles a provisional alias in the same source catalog; public identifiers
+remain separately recorded. Historical handles do not merge distinct IDs.
+
+Install the shared library first and run `scrape-catalog reconcile-account-identifiers
+--apply` to index existing evidence. This registry-only, resumable operation does
+not change captured posts, media, performer UUIDs or saved associations. New
+captures update the index immediately; scheduled reconciliation catches captures
+from already-running older workers. Browsing and jq previews never migrate data.
 
 1. Filter/search accounts. **Conflicting links** indicates competing evidence;
    **Name or alias match** needs a decision; **Ready to review** has profile/link

@@ -154,7 +154,7 @@ class PerformerIdentityTests(unittest.TestCase):
         profiles = [performer(1, 'Canonical', urls=['https://x.com/account'])]
         report = self.sync(profiles)
         self.assertEqual(report['links'], [])
-        self.assertIn('multiple account IDs', report['conflicts'][0]['reason'])
+        self.assertIn('multiple source accounts', report['conflicts'][0]['reason'])
         report = self.sync([performer(1, 'Canonical', urls=['https://x.com/i/user/10'])])
         self.assertEqual(report['links'][0]['accounts'], ['twitter:id:10'])
         self.assertTrue(all(self.store.resolve(cid) == cid for cid in cids))

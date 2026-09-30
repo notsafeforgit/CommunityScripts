@@ -128,100 +128,8 @@ def match_performer(name, performers, reader, path, settings):
 
 
 def catalog_accounts(reader, account_keys=None, catalog_ids=(), state=None):
-    """Read all accounts, or locate selected accounts through registry routes.
-
-    Catalog IDs from the review list are location hints for legacy imports that
-    lack an owner route. They never establish account ownership: the requested
-    key must exist in the catalog. Redirects keep old joined catalogs readable.
-    """
-    selected = None if account_keys is None else set(account_keys)
-    if selected is not None and not selected:
-        return {}
-    if selected is None:
-        catalogs = list(reader.registry.execute("SELECT * FROM catalogs WHERE kind='creator' AND redirect_to IS NULL ORDER BY id"))
-    else:
-        ids = set(catalog_ids)
-        for key in selected:
-            ids.update(row[0] for row in reader.registry.execute(
-                'SELECT catalog_id FROM routes WHERE route=? UNION SELECT id FROM catalogs WHERE owner_key=?',
-                ('owner:creator:' + key, 'creator:' + key)))
-        resolved = {}
-        for cid in sorted(ids):
-            seen = set()
-            while cid:
-                if not isinstance(cid, str) or not re.fullmatch(r'c_[a-f0-9]{32}', cid):
-                    raise ValueError('Invalid creator catalog identifier')
-                if cid in seen:
-                    raise ValueError('Catalog redirect cycle')
-                seen.add(cid)
-                catalog = reader.registry.execute('SELECT * FROM catalogs WHERE id=?', (cid,)).fetchone()
-                if not catalog or catalog['kind'] != 'creator':
-                    break
-                if not catalog['redirect_to']:
-                    resolved[cid] = catalog
-                    break
-                cid = catalog['redirect_to']
-        catalogs = [resolved[cid] for cid in sorted(resolved)]
-    result = {}
-    profile_urls = defaultdict(list)
-    has_urls = reader.registry.execute("SELECT 1 FROM sqlite_master WHERE name='account_profile_urls'").fetchone()
-    if has_urls:
-        if selected is None:
-            for row in reader.registry.execute('SELECT account_key,url FROM account_profile_urls ORDER BY url'):
-                profile_urls[row['account_key']].append(row['url'])
-    directories = defaultdict(set)
-    for route in reader.registry.execute("SELECT route,catalog_id FROM routes WHERE route LIKE 'directory:%'"):
-        suffix = ':' + route['catalog_id']
-        if route['route'].endswith(suffix):
-            directories[route['catalog_id']].add(route['route'][len('directory:'):-len(suffix)])
-    for catalog in catalogs:
-        cid = catalog['id']
-        if not re.fullmatch(r'c_[a-f0-9]{32}', cid):
-            raise ValueError('Invalid creator catalog identifier')
-        with closing(reader._open(reader.root / 'catalogs' / (cid + '.sqlite3'))) as db:
-            source_accounts = [dict(row) for row in db.execute('SELECT * FROM accounts ORDER BY account_key')]
-            # Inventory-only source folders have a registry owner but no posts
-            # (and therefore no accounts row). Keep that provisional owner
-            # reviewable without fabricating post authors or writing on read.
-            if not source_accounts and catalog['owner_key'].startswith('creator:'):
-                key = catalog['owner_key'][len('creator:'):]
-                separator = ':id:' if ':id:' in key else ':handle:'
-                platform, found, value = key.partition(separator)
-                if found and platform and value:
-                    source_accounts.append({'account_key': key, 'platform': platform,
-                                            'source_id': value if separator == ':id:' else None,
-                                            'identity_basis': 'catalog-owner', 'created_at': catalog['created_at']})
-            for row in source_accounts:
-                key = row['account_key']
-                if key in result:
-                    raise ValueError(f'Account {key} belongs to multiple active creator catalogs')
-                handles = [r[0] for r in db.execute('SELECT handle FROM handles WHERE account_key=? ORDER BY handle', (key,))]
-                if row['identity_basis'] == 'catalog-owner' and ':handle:' in key:
-                    handles = [key.partition(':handle:')[2]]
-                if selected is not None and has_urls:
-                    profile_urls[key] = [r[0] for r in reader.registry.execute(
-                        'SELECT url FROM account_profile_urls WHERE account_key=? ORDER BY url', (key,))]
-                result[key] = {**row, 'catalog_id': cid, 'catalog_label': catalog['label'],
-                               'directories': sorted(directories[cid]), 'profile_urls': profile_urls[key], 'handles': handles}
-            # Preserve a reviewed inventory-only Reddit owner after the first
-            # source-ID capture. Its old owner route is still a valid locator.
-            owner = catalog['owner_key'].removeprefix('creator:')
-            owner_name = owner.removeprefix('reddit:handle:')
-            known_owner = any(row['platform'] == 'reddit' and row['source_id']
-                              and owner_name.casefold() in {h.casefold() for h in result[row['account_key']]['handles']}
-                              for row in source_accounts)
-            if owner.startswith('reddit:handle:') and owner not in result and known_owner:
-                result[owner] = {'account_key': owner, 'platform': 'reddit', 'source_id': None,
-                                 'identity_basis': 'catalog-owner', 'catalog_id': cid, 'catalog_label': catalog['label'],
-                                 'directories': sorted(directories[cid]), 'profile_urls': profile_urls[owner],
-                                 'handles': [owner.removeprefix('reddit:handle:')]}
-    state = registry_state(reader) if state is None else state
-    legacy = []
-    if not state['migrated'] and reader.registry.execute("SELECT 1 FROM sqlite_master WHERE name=?", (BINDINGS,)).fetchone():
-        legacy = list(reader.registry.execute('SELECT * FROM ' + BINDINGS))
-    result = account_aliases.group_accounts(result, state, legacy)
-    return {key: row for key, row in result.items()
-            if selected is None or selected.intersection(account_aliases.account_keys(row))}
+    from scrape_catalog.accounts import catalog_accounts as shared_accounts
+    return shared_accounts(reader, account_keys, catalog_ids, state)
 
 
 def merged_profile(current, previous):
@@ -264,13 +172,10 @@ def plan_links(reader, performers, settings, merge=None, focus=None, accounts=No
     references = defaultdict(set)
     handles = defaultdict(set)
     for key, account in accounts.items():
-        if account['source_id']:
-            references[(account['platform'], 'id', str(account['source_id']))].add(key)
-        for url in account['profile_urls']:
-            from scrape_catalog.profiles import canonical_url
-            references[('url', 'profile', canonical_url(url))].add(key)
+        from scrape_catalog.accounts import references as account_references
+        for ref in account_references(account):
+            references[ref].add(key)
         for handle in account['handles']:
-            references[(account['platform'], 'handle', name_key(handle))].add(key)
             handles[name_key(handle)].add(key)
     owners = defaultdict(set)
     conflicts = list({tuple(account['alias_conflict']['accounts']): account['alias_conflict']
@@ -298,7 +203,7 @@ def plan_links(reader, performers, settings, merge=None, focus=None, accounts=No
                 unresolved = keys - bindings.keys() - suppressed - reviewed
                 if unresolved:
                     conflicts.append({'performer_id': pid, 'url': url, 'accounts': sorted(unresolved),
-                                      'reason': 'Handle refers to multiple account IDs; choose an association in Catalog review'})
+                                      'reason': 'Profile reference matches multiple source accounts; choose an association in Catalog review'})
     groups = defaultdict(list)
     for key, account in accounts.items():
         if key in suppressed or key in alias_conflicts:

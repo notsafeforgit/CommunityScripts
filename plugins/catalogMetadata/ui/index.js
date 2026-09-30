@@ -68,7 +68,7 @@ function register(host) {
     })), account.identity_basis === "catalog-owner" && /* @__PURE__ */ React.createElement("p", null, msg(
       "inventory_owner",
       "Files are inventoried, but post metadata has not been captured. This account comes from the recorded source folder owner."
-    )), !account.source_id && /* @__PURE__ */ React.createElement("p", null, msg(
+    )), account.identity_basis === "mirror-user" && /* @__PURE__ */ React.createElement("p", null, msg("mirror_identifier", "The source identifier belongs to a Coomer or Kemono account record. Its captured names are aliases; it is not assumed to be a native service ID.")), !account.source_id && /* @__PURE__ */ React.createElement("p", null, msg(
       "handle_only",
       "Identified by username; a platform account ID has not been captured."
     )), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(
@@ -81,7 +81,7 @@ function register(host) {
         "aria-expanded": details
       },
       details ? msg("hide_details", "Hide source identifiers") : msg("show_details", "Show source identifiers")
-    )), details && /* @__PURE__ */ React.createElement("div", { className: "catalog-review-stack", "data-selectable-text": true }, /* @__PURE__ */ React.createElement("p", null, msg("account_key", "Account key"), ": ", /* @__PURE__ */ React.createElement("code", null, account.account_key)), (account.account_keys?.length ?? 0) > 1 && /* @__PURE__ */ React.createElement("p", null, msg("account_aliases", "Also recorded as"), ": ", account.account_keys.filter((key) => key !== account.account_key).map((key) => /* @__PURE__ */ React.createElement("code", { key }, key))), /* @__PURE__ */ React.createElement("p", null, msg("source_catalog", "Source catalog ID"), ":", " ", /* @__PURE__ */ React.createElement("code", null, account.catalog_id))));
+    )), details && /* @__PURE__ */ React.createElement("div", { className: "catalog-review-stack", "data-selectable-text": true }, /* @__PURE__ */ React.createElement("p", null, msg("account_key", "Account key"), ": ", /* @__PURE__ */ React.createElement("code", null, account.account_key)), (account.account_keys?.length ?? 0) > 1 && /* @__PURE__ */ React.createElement("p", null, msg("account_aliases", "Also recorded as"), ": ", account.account_keys.filter((key) => key !== account.account_key).map((key) => /* @__PURE__ */ React.createElement("code", { key }, key))), (account.identifiers?.length ?? 0) > 0 && /* @__PURE__ */ React.createElement("ul", null, account.identifiers.map((item, index) => /* @__PURE__ */ React.createElement("li", { key: index }, /* @__PURE__ */ React.createElement("code", null, item.namespace, " \xB7 ", item.kind, ": ", item.value), item.handle && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 ", item.handle)))), /* @__PURE__ */ React.createElement("p", null, msg("source_catalog", "Source catalog ID"), ":", " ", /* @__PURE__ */ React.createElement("code", null, account.catalog_id))));
   }
   function Evidence({ account, performers }) {
     return /* @__PURE__ */ React.createElement(Card, { size: "sm" }, /* @__PURE__ */ React.createElement(CardHeader, null, /* @__PURE__ */ React.createElement(CardTitle, { className: "catalog-review-line" }, /* @__PURE__ */ React.createElement(Badge, { variant: "secondary" }, account.platform), account.handles.join(", ") || account.source_id), /* @__PURE__ */ React.createElement(CardDescription, null, account.identity_name ? msg("owned_by", "Catalog performer: {name}", {
@@ -93,7 +93,7 @@ function register(host) {
         profile_url: msg("profile", "Performer profile URL"),
         name_only: msg("name_only", "Name or alias only; review required")
       }[item.kind];
-      return /* @__PURE__ */ React.createElement("li", { key: `${item.kind}:${item.performer_id}:${index}` }, /* @__PURE__ */ React.createElement("span", null, kind, ": ", p ? personLabel(p) : `#${item.performer_id}`), item.url && /* @__PURE__ */ React.createElement("a", { href: item.url, target: "_blank", rel: "noreferrer" }, item.url), item.ambiguous && /* @__PURE__ */ React.createElement("span", null, msg("reused", "This handle appears on multiple account IDs.")));
+      return /* @__PURE__ */ React.createElement("li", { key: `${item.kind}:${item.performer_id}:${index}` }, /* @__PURE__ */ React.createElement("span", null, kind, ": ", p ? personLabel(p) : `#${item.performer_id}`), item.url && /* @__PURE__ */ React.createElement("a", { href: item.url, target: "_blank", rel: "noreferrer" }, item.url), item.ambiguous && /* @__PURE__ */ React.createElement("span", null, msg("reused", "This profile reference matches multiple source accounts.")));
     }))));
   }
   function ReviewPanel({
@@ -131,8 +131,8 @@ function register(host) {
           (item) => item.id === choice.identity_id || item.id === row?.identity_id || item.stash_bindings.some((link) => link.available && link.performer_id === choice.performer_id)
         );
         const catalog_ids = [...new Set([
-          row?.catalog_id,
-          ...related.flatMap((item) => item.accounts.map((account) => account.catalog_id))
+          ...row?.catalog_ids ?? [row?.catalog_id],
+          ...related.flatMap((item) => item.accounts.flatMap((account) => account.catalog_ids ?? [account.catalog_id]))
         ].filter(Boolean))].sort();
         const next = await host.operations.query("review_link", { ...choice, catalog_ids });
         if (alive.current) setPreview(next);
@@ -336,7 +336,7 @@ function register(host) {
           platform: preview.account.platform,
           name: preview.account.handles.join(", ") || preview.account.source_id
         })),
-        (preview.account?.account_keys?.length ?? 0) > 1 && /* @__PURE__ */ React.createElement("p", null, msg("same_reddit_account", "The Reddit username and captured ID identify this same account. This decision applies to both keys.")),
+        (preview.account?.account_keys?.length ?? 0) > 1 && /* @__PURE__ */ React.createElement("p", null, msg("same_source_account", "Captured evidence connects these identifiers to the same account. This decision applies to every listed key.")),
         preview.associated_accounts.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("p", null, msg(
           "other_accounts",
           "Other accounts already associated with this performer:"
