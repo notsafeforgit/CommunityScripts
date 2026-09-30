@@ -120,6 +120,11 @@ try {
     page.getByText("Account unlinked. Automatic matching will respect this choice."),
   ).toBeVisible();
   await expect(page.getByText("1 associated account")).toBeVisible();
+  // One failed list request and its retry; applying must not fetch the library again.
+  assert.equal(await page.evaluate(() => window.reviewRequests.filter((r) => r.operation === "list_reviews").length), 2);
+  assert.ok(await page.evaluate(() => window.reviewRequests
+    .filter((r) => r.operation === "review_link")
+    .every((r) => r.input.catalog_ids?.length > 0)));
   // Removing an account does not remove the identity's Stash binding.
   await expect(page.getByText("Linked to Stash", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Link Stash performer", exact: true })).toHaveCount(0);
@@ -153,6 +158,7 @@ try {
   await page.getByRole("button", { name: "Apply reviewed link" }).click();
   await expect(page.getByText("Linked to Stash", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Link Stash performer", exact: true })).toHaveCount(0);
+  assert.equal(await page.evaluate(() => window.reviewRequests.filter((r) => r.operation === "list_reviews").length), 1);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByText("Linked to Stash", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Link Stash performer", exact: true })).toHaveCount(0);
@@ -179,9 +185,25 @@ try {
     ),
     0,
   );
+  // Updating one row preserves search, filtering, pagination and other conflicts.
+  await page.goto("http://127.0.0.1:3028/stash/catalogMetadata/review?many&binding=none");
+  await page.getByRole("textbox", { name: "Search", exact: true }).fill("account");
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(page.getByText("Page 2 of 3", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^Review account/ }).first().click();
+  await picker.fill("Second person");
+  await page.getByRole("option", { name: /Sam \(Second person\)/ }).click();
+  await page.getByRole("button", { name: "Preview link", exact: true }).click();
+  await page.getByRole("button", { name: "Apply reviewed link" }).click();
+  await expect(page.getByText("Association saved", { exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Search", exact: true })).toHaveValue("account");
+  await expect(page.getByText("Page 2 of 3", { exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Show", exact: true })).toContainText("Needs review");
+  await expect(page.getByRole("button", { name: /^Review account/ })).toHaveCount(12);
+  assert.equal(await page.evaluate(() => window.reviewRequests.filter((r) => r.operation === "list_reviews").length), 1);
   assert.deepEqual(errors, []);
   console.log(
-    "Catalog review browser checks passed: separate sources, UUID groups, individual link/unlink, binding state and apply, stale preview, dry run, mobile, base path.",
+    "Catalog review browser checks passed: targeted card refresh, filter/page preservation, separate sources, UUID groups, link/unlink/bind, stale preview, dry run, mobile, base path.",
   );
 } catch (error) {
   if (page) {

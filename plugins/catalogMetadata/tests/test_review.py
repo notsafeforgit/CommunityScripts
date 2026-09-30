@@ -26,6 +26,7 @@ class ReviewTests(unittest.TestCase):
             writes.append(args)
             self.fail('Catalog review must not mutate Stash entities')
         return SimpleNamespace(gql_allPerformers=lambda: copy.deepcopy(profiles),
+                               gql_performersByIDs=lambda ids: copy.deepcopy([p for p in profiles if str(p['id']) in ids]),
                                gql_pluginSettings=lambda: copy.deepcopy(values),
                                gql_updateTitle=update, clear_performer_cache=lambda: None,
                                values=values, writes=writes)
@@ -197,7 +198,7 @@ class ReviewTests(unittest.TestCase):
         request = {'account_key': 'twitter:id:10', 'performer_id': '1'}
         for change in (lambda: profiles[0].update(name='Changed'),
                        lambda: stash.values.update(performer_link_namespace='other'),
-                       lambda: self.capture('twitter', '20', 'new', 'new.mp4'),
+                       lambda: self.capture('twitter', '10', 'renamed', 'new.mp4'),
                        lambda: self.apply(stash, account_key='twitter:id:10', action='unlink')):
             report, _ = review.review_link(self.reader, stash, request)
             change()
@@ -206,6 +207,84 @@ class ReviewTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'out of date'):
                     review.apply_link(self.reader, stash, {**request, 'review_token': report['review_token']})
             self.assertEqual(self.hashes(), before)
+
+    def test_unrelated_scrapes_performers_settings_and_associations_do_not_stale_preview(self):
+        self.capture()
+        profiles = [performer(1, 'One'), performer(2, 'Two')]
+        stash = self.stash(profiles)
+        request = {'account_key': 'twitter:id:10', 'performer_id': '1'}
+        report, _ = review.review_link(self.reader, stash, request)
+        self.capture('twitter', '20', 'other', 'other.mp4')
+        profiles[1]['name'] = 'Unrelated edit'
+        stash.values['scene_import_mappings'] = {'title': '.catalog.title'}
+        self.apply(stash, account_key='twitter:id:20', performer_id='2')
+        result = review.apply_link(self.reader, stash, {**request, 'review_token': report['review_token']})
+        self.assertEqual(result['performer_id'], '1')
+
+    def test_preview_and_apply_never_scan_unrelated_catalogs_or_performers(self):
+        selected = self.capture()
+        unrelated = self.capture('twitter', '20', 'other', 'other.mp4')
+        stash = self.stash([performer(1, 'One'), performer(2, 'Two')])
+        opened = []
+        from scrape_catalog.reader import Reader
+        original = Reader._open
+        def checked(path):
+            opened.append(path.name)
+            self.assertNotEqual(path.name, unrelated + '.sqlite3')
+            return original(path)
+        with patch.object(Reader, '_open', side_effect=checked), \
+                patch.object(stash, 'gql_allPerformers', side_effect=AssertionError('Full performer scan')), \
+                patch.object(stash, 'gql_performersByIDs', wraps=stash.gql_performersByIDs) as lookup:
+            result = self.apply(stash, account_key='twitter:id:10', performer_id='1')
+        self.assertEqual(opened.count(selected + '.sqlite3'), 4)  # Preview, two validations, changed card.
+        self.assertTrue(all(call.args[0] == {'1'} for call in lookup.call_args_list))
+        self.assertEqual([a['account_key'] for a in result['updates']['accounts']], ['twitter:id:10'])
+        self.assertEqual(len(result['updates']['identities']), 1)
+        self.assertEqual(result['updates']['identities'][0]['stash_bindings'][0]['available'], True)
+
+    def test_legacy_account_location_is_verified_and_follows_catalog_redirects(self):
+        selected = self.capture()
+        target = self.capture('reddit', 't2_20', 'other', 'other.jpg')
+        # Legacy imports can insert an account into an existing catalog whose
+        # provisional owner has a different key and no exact owner route.
+        self.store.registry.execute('DELETE FROM routes WHERE route=?', ('owner:creator:twitter:id:10',))
+        self.store.registry.execute('UPDATE catalogs SET owner_key=? WHERE id=?', ('creator:twitter:handle:account', selected))
+        self.store.registry.commit()
+        self.store.link(selected, target, 'Historical catalog join')
+        stash = self.stash([performer(1, 'One')])
+        with self.assertRaisesRegex(ValueError, 'individual source account'):
+            review.review_link(self.reader, stash, {'account_key': 'twitter:id:10', 'performer_id': '1'})
+        result = self.apply(stash, account_key='twitter:id:10', performer_id='1', catalog_ids=[selected])
+        self.assertEqual(result['updates']['accounts'][0]['catalog_id'], target)
+        with self.assertRaises(ValueError):
+            review.review_link(self.reader, stash, {'account_key': 'unknown', 'performer_id': '1', 'catalog_ids': [target]})
+        with self.assertRaisesRegex(ValueError, 'Invalid creator catalog identifier'):
+            review.review_link(self.reader, stash, {'account_key': 'twitter:id:10', 'performer_id': '1', 'catalog_ids': ['../../secret']})
+
+    def test_reassignment_updates_both_identity_cards_and_binding_updates_related_accounts(self):
+        self.capture()
+        self.capture('reddit', 't2_20', 'other', 'other.jpg')
+        profiles = [performer(1, 'One'), performer(2, 'Two')]
+        stash = self.stash(profiles)
+        original = self.apply(stash, account_key='twitter:id:10', performer_id='1')['identity_id']
+        self.apply(stash, account_key='reddit:id:t2_20', identity_id=original)
+        result = self.apply(stash, account_key='twitter:id:10', performer_id='2')
+        self.assertEqual({i['id'] for i in result['updates']['identities']}, {original, result['identity_id']})
+        for identity in result['updates']['identities']:
+            self.assertEqual(len(identity['accounts']), 1)
+        profiles[:] = [performer(3, 'Rebuilt')]
+        bound = self.apply(stash, action='bind', identity_id=original, performer_id='3')
+        self.assertEqual(bound['updates']['accounts'][0]['performer_id'], '3')
+        self.assertEqual(bound['updates']['accounts'][0]['binding_conflicts'], [])
+        self.assertEqual(bound['updates']['accounts'][0]['account_key'], 'reddit:id:t2_20')
+
+    def test_failure_building_changed_cards_rolls_back_association(self):
+        self.capture()
+        stash = self.stash([performer(1, 'One')])
+        with patch.object(review, 'affected_cards', side_effect=RuntimeError('Cannot refresh account')):
+            with self.assertRaisesRegex(RuntimeError, 'Cannot refresh account'):
+                self.apply(stash, account_key='twitter:id:10', performer_id='1')
+        self.assertEqual(read_state(self.store.registry)['identities'], {})
 
     def test_rechecks_after_obtaining_writer_lock(self):
         self.capture()
@@ -217,6 +296,29 @@ class ReviewTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'out of date'):
             review.apply_link(self.reader, stash, {**request, 'review_token': report['review_token']})
         self.assertEqual(read_state(self.store.registry)['accounts'], {})
+
+    def test_rechecks_selected_association_changed_while_waiting_for_writer(self):
+        self.capture()
+        stash = self.stash([performer(1, 'One'), performer(2, 'Two')])
+        request = {'account_key': 'twitter:id:10', 'performer_id': '1'}
+        report, _ = review.review_link(self.reader, stash, request)
+        original_lock, changed = Store.lock, False
+        @contextmanager
+        def lock_after_change(store):
+            nonlocal changed
+            if not changed:
+                changed = True
+                with transaction(self.store) as registry:
+                    uid = registry.ensure_binding('stash', '2', performer(2, 'Two'))
+                    registry.associate('twitter:id:10', uid, 'review', 'Reviewed while waiting')
+            with original_lock(store):
+                yield
+        with patch.object(Store, 'lock', lock_after_change):
+            with self.assertRaisesRegex(ValueError, 'out of date'):
+                review.apply_link(self.reader, stash, {**request, 'review_token': report['review_token']})
+        state = read_state(self.store.registry)
+        uid = state['accounts']['twitter:id:10']['identity_id']
+        self.assertEqual(state['identities'][uid]['profile']['name'], 'Two')
 
     def test_dry_run_direction_and_identity_setting_block_apply_only(self):
         self.capture()
@@ -260,6 +362,22 @@ class ReviewTests(unittest.TestCase):
         with patch('requests.post', side_effect=AssertionError('Network request')):
             with self.assertRaisesRegex(RuntimeError, 'mutations are disabled'):
                 stash.gql_updateTitle('scene', '1', 'Preview must not write')
+
+    def test_targeted_performer_lookup_filters_ids_and_rechecks_missing_after_cache_clear(self):
+        stash = StashInterface({'args': {'mode': 'operation', 'operation_type': 'query'}, 'server_connection': {'PluginDir': '.'}})
+        response = {'p0': {'id': '1', 'name': 'One', 'aliases': [{'alias': 'Old'}], 'urls': []}, 'p1': None}
+        with patch.object(stash, '_StashInterface__gql_call', side_effect=lambda *args: copy.deepcopy(response)) as query:
+            self.assertEqual(stash.gql_performersByIDs([]), [])
+            query.assert_not_called()
+            self.assertEqual(stash.gql_performersByIDs({'1', '2'})[0]['alias_list'], ['Old'])
+            self.assertEqual(query.call_args.args[1], {'p0': '1', 'p1': '2'})
+            self.assertIn('p0: findPerformer(id: $p0)', query.call_args.args[0])
+            self.assertIn('p1: findPerformer(id: $p1)', query.call_args.args[0])
+            self.assertEqual(stash.gql_performersByIDs({'2'}), [])
+            self.assertEqual(query.call_count, 1)
+            stash.clear_performer_cache()
+            stash.gql_performersByIDs({'1', '2'})
+            self.assertEqual(query.call_count, 2)
 
 
 if __name__ == '__main__':

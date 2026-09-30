@@ -78,6 +78,12 @@ const accounts = [
   },
 ];
 const params = new URLSearchParams(location.search);
+if (params.has("many")) {
+  for (let i = 0; i < 25; i++) accounts.push({
+    ...structuredClone(accounts[0]), account_key: `twitter:id:extra${i}`,
+    label: `account extra ${i}`, handles: [`account extra ${i}`],
+  });
+}
 const bindingState = params.get("binding");
 let stashBindings = bindingState === "none" ? [] : [
   {
@@ -200,6 +206,19 @@ const client = new ApolloClient({
                 account_key: account?.account_key,
                 performer_id: "2",
                 linked_accounts: action === "link" ? 1 : 0,
+                updates: {
+                  accounts: (account ? [account] : accounts.filter((item) => item.identity_id === uuid)).map((item) => ({
+                    ...item,
+                    reviewed: true,
+                    binding_conflicts: [],
+                    candidate_ids: item.performer_id ? [item.performer_id] : [],
+                  })),
+                  identities: [catalogPerformer()],
+                  performers: people.filter((person) => person.id === "2"),
+                  performer_ids: ["2"],
+                  namespace: "stash",
+                  blocked_reason: blocked,
+                },
               },
             },
           });

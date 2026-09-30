@@ -127,7 +127,14 @@ function register(host) {
       setError(null);
       setPreview(null);
       try {
-        const next = await host.operations.query("review_link", choice);
+        const related = identities.filter(
+          (item) => item.id === choice.identity_id || item.id === row?.identity_id || item.stash_bindings.some((link) => link.available && link.performer_id === choice.performer_id)
+        );
+        const catalog_ids = [...new Set([
+          row?.catalog_id,
+          ...related.flatMap((item) => item.accounts.map((account) => account.catalog_id))
+        ].filter(Boolean))].sort();
+        const next = await host.operations.query("review_link", { ...choice, catalog_ids });
         if (alive.current) setPreview(next);
       } catch (error2) {
         if (alive.current) setError(errorMessage(error2));
@@ -332,7 +339,7 @@ function register(host) {
         preview.associated_accounts.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("p", null, msg(
           "other_accounts",
           "Other accounts already associated with this performer:"
-        )), /* @__PURE__ */ React.createElement("ul", null, preview.associated_accounts.map((account) => /* @__PURE__ */ React.createElement("li", { key: account.account_key }, account.platform, ":", " ", account.handles.join(", ") || account.source_id)))),
+        )), /* @__PURE__ */ React.createElement("ul", null, preview.associated_accounts.map((account) => /* @__PURE__ */ React.createElement("li", { key: account.account_key }, account.missing ? account.account_key : `${account.platform}: ${account.handles.join(", ") || account.source_id}`)))),
         /* @__PURE__ */ React.createElement("p", null, msg(
           "preserved_separate",
           "Source metadata and media stay in their existing catalogs and folders."
@@ -389,6 +396,48 @@ function register(host) {
       };
     }, [refresh]);
     function applied(result) {
+      setData((current) => {
+        const updates = result.updates;
+        if (current.namespace !== updates.namespace) return current;
+        const changed = new Map(updates.accounts.map((account) => [account.account_key, account]));
+        const accounts = current.accounts.map((account) => {
+          const update = changed.get(account.account_key);
+          if (!update) return account;
+          const { reviewed, binding_conflicts, candidate_ids, ...association } = update;
+          const conflicts = [
+            ...reviewed ? [] : account.conflicts.filter(
+              (conflict) => conflict.reason !== "Conflicting or missing performers; this account needs an explicit association"
+            ),
+            ...binding_conflicts
+          ];
+          const evidence = account.evidence.filter((item) => item.kind !== "saved_link");
+          if (update.performer_id) evidence.unshift({ kind: "saved_link", performer_id: update.performer_id });
+          return {
+            ...account,
+            ...association,
+            conflicts,
+            evidence,
+            label: update.handles?.join(", ") || update.source_id || account.label,
+            status: conflicts.length ? "conflict" : update.status,
+            candidate_ids: [.../* @__PURE__ */ new Set([...candidate_ids, ...evidence.map((item) => item.performer_id)])].sort()
+          };
+        });
+        const merge = (existing, changed2) => [...new Map(
+          [...existing, ...changed2].map((item) => [item.id, item])
+        ).values()];
+        const counts = {};
+        for (const account of accounts) counts[account.status] = (counts[account.status] ?? 0) + 1;
+        return {
+          ...current,
+          accounts,
+          counts,
+          identities: merge(current.identities, updates.identities).sort(
+            (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
+          ),
+          performers: merge(current.performers.filter((person) => !updates.performer_ids.includes(person.id)), updates.performers),
+          blocked_reason: updates.blocked_reason
+        };
+      });
       setNotice(
         result.action === "unlink" ? msg(
           "unlinked_notice",
@@ -402,7 +451,7 @@ function register(host) {
         )
       );
       setSelected(null);
-      void refresh();
+      if (data.namespace !== result.updates.namespace) void refresh();
     }
     function chooseAccount(row) {
       setSelected({ row });

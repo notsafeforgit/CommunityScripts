@@ -426,6 +426,15 @@ identity-sync settings. It rechecks current data after obtaining the writer lock
 rejects stale previews, and commits the identity, binding, association and audit
 event together in one registry transaction. It performs no Stash mutation.
 
+Since version 1.12, preview and apply look up only the selected account and the
+bindings/accounts of the affected catalog performers. They do not scan every
+source database or fetch every Stash performer. Older imports without an owner
+route use verified catalog-location hints from the review cards. Changes to the
+selected profile, relevant associations or sync controls require another preview;
+unrelated scrapes and mapping-setting edits do not. Apply returns the changed
+cards directly, preserving search, filters and pagination. **Refresh** still
+performs full discovery to pick up unrelated new accounts and matching evidence.
+
 The **Preview performer catalog links** and **Sync performer catalog links** tasks
 remain available for profile-based proposals and synchronization, including new
 accounts discovered since the last performer edit. Explicit review decisions take

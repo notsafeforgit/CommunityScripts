@@ -12,6 +12,7 @@ class StashInterface:
     def __init__(self, fragment):
         self._start = time.time()
         self._performers = None
+        self._performers_by_id = {}
         self._fragment = fragment
         self._mode = self._fragment['args'].get("mode") or "normal"
         self._fragment_server = self._fragment["server_connection"]
@@ -69,6 +70,7 @@ class StashInterface:
 
     def clear_performer_cache(self):
         self._performers = None
+        self._performers_by_id = {}
 
     def get_hook_context(self):
         return self._fragment['args'].get('hookContext') or {}
@@ -490,6 +492,25 @@ class StashInterface:
         }
         result = self.__gql_call(query, variables)
         return result.get("movieCreate")
+
+    def gql_performersByIDs(self, ids):
+        ids = sorted(set(str(pid) for pid in ids))
+        missing = [pid for pid in ids if pid not in self._performers_by_id]
+        if missing:
+            # findPerformers(ids:) fails the whole request for deleted IDs.
+            # Aliased findPerformer calls return null for those old bindings.
+            variables = {'p' + str(i): pid for i, pid in enumerate(missing)}
+            declarations = ', '.join('$' + name + ': ID!' for name in variables)
+            fields = ' '.join(name + ': findPerformer(id: $' + name + ') '
+                              '{ id name disambiguation aliases { alias } urls }' for name in variables)
+            result = self.__gql_call('query(' + declarations + ') { ' + fields + ' }', variables)
+            self._performers_by_id.update(dict.fromkeys(missing))
+            for performer in result.values():
+                if performer is None:
+                    continue
+                performer['alias_list'] = [a['alias'] for a in performer.pop('aliases')]
+                self._performers_by_id[str(performer['id'])] = performer
+        return [self._performers_by_id[pid] for pid in ids if self._performers_by_id[pid] is not None]
 
     def gql_allPerformers(self):
         # Fetch once per invocation. Exact Unicode matching and collisions must

@@ -46,9 +46,9 @@ def registry_state(reader):
     return read_state(reader.registry)
 
 
-def saved_links(reader, settings):
+def saved_links(reader, settings, state=None):
     from scrape_catalog.identities import binding_ids, resolve
-    state = registry_state(reader)
+    state = registry_state(reader) if state is None else state
     if state['migrated']:
         ns = namespace(settings)
         profiles = {}
@@ -119,19 +119,57 @@ def match_performer(name, performers, reader, path, settings):
     return selected, [live[pid] for pid in sorted(candidates)]
 
 
-def catalog_accounts(reader):
-    """Accounts remain addressable even inside previously joined catalogs."""
+def catalog_accounts(reader, account_keys=None, catalog_ids=()):
+    """Read all accounts, or locate selected accounts through registry routes.
+
+    Catalog IDs from the review list are location hints for legacy imports that
+    lack an owner route. They never establish account ownership: the requested
+    key must exist in the catalog. Redirects keep old joined catalogs readable.
+    """
+    selected = None if account_keys is None else set(account_keys)
+    if selected is not None and not selected:
+        return {}
+    if selected is None:
+        catalogs = list(reader.registry.execute("SELECT * FROM catalogs WHERE kind='creator' AND redirect_to IS NULL ORDER BY id"))
+    else:
+        ids = set(catalog_ids)
+        for key in selected:
+            ids.update(row[0] for row in reader.registry.execute(
+                'SELECT catalog_id FROM routes WHERE route=? UNION SELECT id FROM catalogs WHERE owner_key=?',
+                ('owner:creator:' + key, 'creator:' + key)))
+        resolved = {}
+        for cid in sorted(ids):
+            seen = set()
+            while cid:
+                if not isinstance(cid, str) or not re.fullmatch(r'c_[a-f0-9]{32}', cid):
+                    raise ValueError('Invalid creator catalog identifier')
+                if cid in seen:
+                    raise ValueError('Catalog redirect cycle')
+                seen.add(cid)
+                catalog = reader.registry.execute('SELECT * FROM catalogs WHERE id=?', (cid,)).fetchone()
+                if not catalog or catalog['kind'] != 'creator':
+                    break
+                if not catalog['redirect_to']:
+                    resolved[cid] = catalog
+                    break
+                cid = catalog['redirect_to']
+        catalogs = [resolved[cid] for cid in sorted(resolved)]
     result = {}
     profile_urls = defaultdict(list)
     if reader.registry.execute("SELECT 1 FROM sqlite_master WHERE name='account_profile_urls'").fetchone():
-        for row in reader.registry.execute('SELECT account_key,url FROM account_profile_urls ORDER BY url'):
-            profile_urls[row['account_key']].append(row['url'])
+        if selected is None:
+            for row in reader.registry.execute('SELECT account_key,url FROM account_profile_urls ORDER BY url'):
+                profile_urls[row['account_key']].append(row['url'])
+        else:
+            for key in selected:
+                profile_urls[key] = [row[0] for row in reader.registry.execute(
+                    'SELECT url FROM account_profile_urls WHERE account_key=? ORDER BY url', (key,))]
     directories = defaultdict(set)
     for route in reader.registry.execute("SELECT route,catalog_id FROM routes WHERE route LIKE 'directory:%'"):
         suffix = ':' + route['catalog_id']
         if route['route'].endswith(suffix):
             directories[route['catalog_id']].add(route['route'][len('directory:'):-len(suffix)])
-    for catalog in reader.registry.execute("SELECT * FROM catalogs WHERE kind='creator' AND redirect_to IS NULL ORDER BY id"):
+    for catalog in catalogs:
         cid = catalog['id']
         if not re.fullmatch(r'c_[a-f0-9]{32}', cid):
             raise ValueError('Invalid creator catalog identifier')
@@ -150,6 +188,8 @@ def catalog_accounts(reader):
                                             'identity_basis': 'catalog-owner', 'created_at': catalog['created_at']})
             for row in source_accounts:
                 key = row['account_key']
+                if selected is not None and key not in selected:
+                    continue
                 if key in result:
                     raise ValueError(f'Account {key} belongs to multiple active creator catalogs')
                 handles = [r[0] for r in db.execute('SELECT handle FROM handles WHERE account_key=? ORDER BY handle', (key,))]
