@@ -87,6 +87,23 @@ class PreviewTests(unittest.TestCase):
             self.assertEqual(evaluate(SETTINGS[f'{kind}_export_mappings'], context), {'actors': ['Alice']})
         self.assertEqual(before, self.catalog_hashes())
 
+    def test_shared_post_preview_exposes_attachment_patches_without_repeating_body(self):
+        for num in (1,2,3):
+            self.store.capture({'category':'twitter','tweet_id':'123',
+                'author':{'id':'1','name':'account'},'content':'Shared caption',
+                'num':num,'filename':str(num),'extension':'jpg'},'Manual/example.mp4')
+        before=self.catalog_hashes()
+        context=self.preview('image','import')
+        self.assertEqual(len(context['observations']),1)
+        post=context['observations'][0]
+        self.assertEqual(post['payload']['content'],'Shared caption')
+        self.assertNotIn('num',post['payload'])
+        self.assertEqual({c['payload_patch']['num'] for c in post['captures']},{1,2,3})
+        self.assertTrue(all('content' not in c['payload_patch'] for c in post['captures']))
+        self.assertEqual(evaluate({'numbers':'[.observations[].captures[].payload_patch.num] | sort'},context),
+                         {'numbers':[1,2,3]})
+        self.assertEqual(before,self.catalog_hashes())
+
     def test_first_unsaved_import_mapping_can_preview_without_projected_metadata(self):
         context = self.preview('scene', 'import')
         self.assertEqual(context['catalog']['source'], 'catalog')

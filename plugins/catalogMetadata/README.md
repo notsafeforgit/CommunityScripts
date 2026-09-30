@@ -31,8 +31,8 @@ Version 1.2 and later declare `apiVersion: 3` and require the Stash fork's v3 pl
 (`pluginSettingsV3`, `pluginEvaluateMappings`, `updatePluginSettingsV3`). It has
 no v2.5 plugin API or UI compatibility requirement. Upgrade Stash before installing
 this version: older Stash builds reject the versioned manifest.
-Version 1.7 requires `scrape-catalog` 0.2.0 or later for catalog-owned performer
-UUIDs. Its `ui.entry` provides Catalog review through the shared v3 UI host.
+Version 1.8 requires `scrape-catalog` 0.3.0 or later for shared post metadata and
+catalog-owned performer UUIDs. Its `ui.entry` provides Catalog review through the shared v3 UI host.
 No Python jq package or jq executable is needed at runtime.
 
 Enable **Catalog Metadata**. When replacing the legacy integration, disable
@@ -201,8 +201,13 @@ Both directions receive:
   not an arbitrary recursive GraphQL projection.
 - `.catalog`: resolved metadata. Imports include preserved XML/filename defaults;
   exports use the catalog reader projection and manual overrides.
-- `.observations`: captured source rows ordered by capture time and observation
-  ID; each has `.payload` containing the original JSON. `[-1]` selects the last.
+- `.observations`: post revisions ordered by capture time and observation ID.
+  Each `.payload` contains shared source metadata, such as the post caption and
+  author. `[-1]` selects the last revision. Multiple images/videos in a post share
+  that body; `.captures[]` retains each original capture ID, time, extractor
+  version and `.payload_patch` with attachment/provenance fields such as `num`,
+  `filename`, `_url` or `nfo_path`. Genuine post changes and different post IDs
+  stay separate. Unchanged NFO documents also share storage behind the reader.
 - `.path` and `.relative_path`: selected media pathname.
 
 Exports additionally receive `.fields` (hook input field names), `.input`
@@ -242,7 +247,8 @@ catalogs, media outside the configured source, and oversized contexts report
 errors instead of running an import.
 
 - **Import:** `.catalog` uses the same XML, filename defaults, translations and
-  manual overrides as the normal importer. `.observations` exposes raw captures.
+  manual overrides as the normal importer. `.observations` exposes shared post
+  bodies and their capture patches.
   An unsaved first mapping works even when the saved map is empty. Results show
   custom mapped fields only; `{}` does not mean the standard importer would do
   nothing. Standard imports, title fallback, organized checks and relation
@@ -350,7 +356,7 @@ person as depicted in every scene or image.
 
 ## Catalog review page
 
-Update the catalog library before installing **Catalog Metadata 1.7**, then
+Update the catalog library before installing **Catalog Metadata 1.8**, then
 reload the Stash UI. Open **Catalog review** from navigation or **Settings →
 Plugins → Catalog Metadata → Open Catalog review**. Scene/image jq previews remain
 in plugin settings.
