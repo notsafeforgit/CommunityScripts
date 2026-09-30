@@ -93,6 +93,15 @@ class CatalogPluginTests(unittest.TestCase):
     def test_outside_catalog_source_is_skipped(self):
         self.assertIsNone(self.plugin()._CatalogMetadataPlugin__parse(str(self.root / 'other.mp4')))
 
+    def test_startup_configures_backend_path_before_loading_shared_accounts(self):
+        import subprocess
+        code = "import sys; sys.path.insert(0, " + repr(str(Path(__file__).resolve().parents[1])) + "); import catalogMetadata; from catalogReader import get_reader; reader=get_reader(); print(len(reader.accounts()))"
+        env = {**os.environ, 'SCRAPE_CATALOG_CODE': os.environ.get('SCRAPE_CATALOG_CODE', '/opt/scrape-catalog'),
+               'SCRAPE_CATALOG_ROOT': str(self.store.root), 'SCRAPE_MEDIA_ROOT': str(self.media)}
+        result = subprocess.run([sys.executable, '-I', '-c', code], env=env, cwd='/tmp', capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.strip().endswith('0'), result.stdout)
+
     def test_unconfigured_catalog_fails_visibly(self):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(RuntimeError, 'SCRAPE_CATALOG_ROOT'):
