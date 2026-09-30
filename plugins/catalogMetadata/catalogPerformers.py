@@ -41,22 +41,9 @@ def namespace(settings):
     return value
 
 
-def explicit_links(settings):
-    value = settings.get('performer_account_links', {})
-    if not isinstance(value, dict) or any(not isinstance(k, str) or not k or not isinstance(v, str) or not v.isdecimal() for k, v in value.items()):
-        raise ValueError('Performer account links must map catalog account keys to Stash performer ID strings')
-    return value
-
-
 def registry_state(reader):
     from scrape_catalog.identities import read_state
     return read_state(reader.registry)
-
-
-def effective_explicit(reader, settings):
-    # Registry decisions, including deliberate unlinks, supersede legacy JSON.
-    saved = registry_state(reader)['accounts']
-    return {key: pid for key, pid in explicit_links(settings).items() if key not in saved}
 
 
 def saved_links(reader, settings):
@@ -117,8 +104,7 @@ def match_performer(name, performers, reader, path, settings):
     live = {str(p['id']): p for p in performers}
     candidates = {pid for pid, p in live.items() if name_key(name) in names(p)}
     profiles, bindings = saved_links(reader, settings)
-    explicit = effective_explicit(reader, settings)
-    linked = {resolve_id(explicit.get(key, bindings.get(key)), profiles)
+    linked = {resolve_id(bindings.get(key), profiles)
               for key in file_accounts(reader, path)}
     linked.discard(None)
     # Historical names from a merge only apply to explicitly linked accounts.
@@ -186,10 +172,9 @@ def merged_profile(current, previous):
 
 
 def plan_links(reader, performers, settings, merge=None, focus=None, accounts=None):
-    """Pure plan: profile URLs or explicit stable account keys establish ownership."""
+    """Pure plan: profile URLs or registry associations establish ownership."""
     from scrape_catalog.identities import resolve, binding_ids
     namespace(settings)
-    explicit = effective_explicit(reader, settings)
     profiles, bindings = saved_links(reader, settings)
     state = registry_state(reader)
     suppressed = {key for key, value in state['accounts'].items() if not value['identity_id']}
@@ -244,16 +229,10 @@ def plan_links(reader, performers, settings, merge=None, focus=None, accounts=No
                 if key not in suppressed | reviewed:
                     owners[key].add(pid)
             elif len(keys) > 1 and pid in focus:
-                unresolved = keys - explicit.keys() - bindings.keys() - suppressed - reviewed
+                unresolved = keys - bindings.keys() - suppressed - reviewed
                 if unresolved:
                     conflicts.append({'performer_id': pid, 'url': url, 'accounts': sorted(unresolved),
-                                      'reason': 'Handle refers to multiple account IDs; specify an explicit account link'})
-    for key, pid in explicit.items():
-        target = resolve_id(pid, profiles, redirects)
-        if key not in accounts or target not in live:
-            conflicts.append({'account_key': key, 'performer_id': pid, 'reason': 'Explicit link references an unknown creator account or performer'})
-            continue
-        owners[key] = {target}
+                                      'reason': 'Handle refers to multiple account IDs; choose an association in Catalog review'})
     groups = defaultdict(list)
     for key, account in accounts.items():
         if key in suppressed:
@@ -262,7 +241,7 @@ def plan_links(reader, performers, settings, merge=None, focus=None, accounts=No
         if not choices:
             continue
         if len(choices) != 1 or not choices <= live.keys():
-            if choices & focus or key in explicit or key in bindings:
+            if choices & focus or key in bindings:
                 conflicts.append({'catalog_id': account['catalog_id'], 'accounts': [key], 'performer_ids': sorted(choices),
                                   'performers': [{'id': pid, 'name': live.get(pid, {}).get('name'),
                                                   'disambiguation': live.get(pid, {}).get('disambiguation')}
@@ -351,8 +330,8 @@ def sync_links(reader, stash, settings, hook=None, preview=False):
         from scrape_catalog.reader import Reader
         from scrape_catalog.store import Store
         with Store(reader.root, reader.media_root) as store, store.lock():
-            # A review may have saved a newer explicit choice while this hook
-            # waited. Never overwrite it using the invocation's stale settings.
+            # Recheck sync controls and registry associations after waiting for
+            # the writer lock, including decisions made in Catalog review.
             settings = stash.gql_pluginSettings()
             if settings.get('sync_direction', 'both') not in ('both', 'export') or not settings.get('sync_performer_catalogs', True):
                 return {'links': [], 'conflicts': [], 'name_only_candidates': []}

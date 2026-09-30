@@ -145,7 +145,6 @@ export default function register(host) {
               {account.evidence.map((item, index) => {
                 const p = performers.find((person) => person.id === item.performer_id);
                 const kind = {
-                  explicit_link: msg("legacy_link", "Previously configured link"),
                   saved_link: msg("saved", "Saved catalog link"),
                   profile_url: msg("profile", "Performer profile URL"),
                   name_only: msg("name_only", "Name or alias only; review required"),

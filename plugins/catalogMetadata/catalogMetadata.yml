@@ -1,7 +1,7 @@
 apiVersion: 3
 name: Catalog Metadata
 description: Import catalog metadata and map Stash edits back to manual catalog fields
-version: 1.10.0
+version: 1.11.0
 url: https://github.com/notsafeforgit/CommunityScripts/tree/main/plugins/catalogMetadata
 exec:
 - python
@@ -22,17 +22,17 @@ operations:
     kind: MUTATION
     description: Recheck and atomically apply one reviewed registry association; source catalogs stay separate
 hooks:
-- name: hook_catalogMetadata
+- name: Import catalog metadata
   description: Apply catalog metadata when a scene or image is created
   triggeredBy:
   - Scene.Create.Post
   - Image.Create.Post
-- name: write_catalogMetadata
+- name: Export catalog metadata
   description: Write successful scene and image edits to the catalog
   triggeredBy:
   - Scene.Update.Post
   - Image.Update.Post
-- name: sync_performer_catalogs
+- name: Sync performer associations
   description: Preserve catalog performer UUIDs, merge history and source account associations
   triggeredBy:
   - Performer.Merge.Post
@@ -76,15 +76,6 @@ settings:
       Instagram, Bluesky, TikTok, Coomer/Kemono service accounts and captured profile URLs from other extractors.
       Accounts, source catalogs and folders stay separate. Names alone require review. Requires Stash-to-catalog sync.
     default: true
-  performer_account_links:
-    type: JSON
-    editor: JSON
-    displayName: Legacy performer account links
-    description: >-
-      Map stable catalog account keys to Stash performer ID strings, for example {"twitter:id:12345":"42","reddit:id:t2_abc":"42"}.
-      Used to import associations from earlier plugin versions. Registry decisions, including intentional unlinks,
-      take precedence. Manage new links, reassignments and unlinks on the Catalog review page.
-    default: {}
   performer_link_namespace:
     type: STRING
     displayName: Performer link namespace

@@ -72,16 +72,31 @@ class PerformerIdentityTests(unittest.TestCase):
         self.assertIn('ambiguous', warning.call_args.args[0])
         self.assertIn('"id": "2"', warning.call_args.args[0])
 
-    def test_explicit_links_disambiguate_only_the_relevant_accounts(self):
+    def test_reviewed_links_disambiguate_only_the_relevant_accounts(self):
         self.capture()
         self.capture('reddit', 't2_20', 'account', 'other.jpg')
         profiles = [performer(1, 'One', ['Sam']), performer(2, 'Two', ['Sam'])]
-        settings = {'performer_account_links': {'twitter:id:10': '1', 'reddit:id:t2_20': '2'}}
-        self.assertEqual(self.match('Sam', profiles, settings)[0], '1')
-        self.assertEqual(self.match('Sam', profiles, settings, self.path.parent / 'other.jpg')[0], '2')
+        with transaction(self.store) as registry:
+            for key, profile in zip(('twitter:id:10', 'reddit:id:t2_20'), profiles):
+                uid = registry.ensure_binding('stash', profile['id'], profile)
+                registry.associate(key, uid, 'review', 'Reviewed account association')
+        self.assertEqual(self.match('Sam', profiles)[0], '1')
+        self.assertEqual(self.match('Sam', profiles, path=self.path.parent / 'other.jpg')[0], '2')
         # Two author identities on one file are still ambiguous for this name.
         self.capture('reddit', 't2_20', 'account')
-        self.assertIsNone(self.match('Sam', profiles, settings)[0])
+        self.assertIsNone(self.match('Sam', profiles)[0])
+
+    def test_legacy_json_does_not_resolve_imports_or_create_associations(self):
+        self.capture()
+        profiles = [performer(1, 'account'), performer(2, 'Other', ['account'])]
+        for value in ({'twitter:id:10': '2'}, 'obsolete JSON', None):
+            with self.subTest(value=value):
+                settings = {'performer_account_links': value}
+                self.assertIsNone(self.match('account', profiles, settings)[0])
+                report = self.sync(profiles, settings)
+                self.assertEqual(report['links'], [])
+                self.assertEqual(len(report['name_only_candidates']), 2)
+                self.assertEqual(read_state(self.store.registry)['accounts'], {})
 
     def test_merge_links_cross_service_and_same_service_accounts_preserving_evidence(self):
         cids = [self.capture(), self.capture('reddit', 't2_20', 'elsewhere', 'reddit.jpg'),
@@ -120,14 +135,17 @@ class PerformerIdentityTests(unittest.TestCase):
         self.assertEqual(len(report['name_only_candidates']), 2)
         self.assertTrue(all(self.store.resolve(cid) == cid for cid in cids))
 
-    def test_conflicting_profile_urls_require_an_explicit_account_link(self):
+    def test_conflicting_profile_urls_require_a_reviewed_account_link(self):
         self.capture()
         profiles = [performer(1, 'One', urls=['https://x.com/account']),
                     performer(2, 'Two', urls=['https://twitter.com/account'])]
         report = self.sync(profiles)
         self.assertEqual(report['links'], [])
         self.assertEqual(report['conflicts'][0]['performer_ids'], ['1', '2'])
-        report = self.sync(profiles, {'performer_account_links': {'twitter:id:10': '2'}})
+        with transaction(self.store) as registry:
+            uid = registry.ensure_binding('stash', '2', profiles[1])
+            registry.associate('twitter:id:10', uid, 'review', 'Reviewed conflict resolution')
+        report = self.sync(profiles)
         self.assertEqual(report['conflicts'], [])
         self.assertEqual(report['links'][0]['performer_id'], '2')
 

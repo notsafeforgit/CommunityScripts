@@ -344,7 +344,7 @@ library. In **Catalog performers**, **Link Stash performer** can bind an existin
 catalog UUID to a performer in that library. It rejects conflicting current
 bindings instead of silently combining different UUIDs.
 
-The first write migrates previously saved plugin links, aliases and redirects
+The first write migrates links, aliases and redirects from the old registry tables
 into these catalog-owned tables, in the same registry transaction as the action.
 It is idempotent and retains the old tables for inspection. Read-only imports and
 previews do not run migrations. An administrator can migrate existing saved links
@@ -359,9 +359,12 @@ scrape-catalog performer-identities                 # read-only UUIDs and bindin
 Older physical catalog merges are kept readable. Accounts in those catalogs can
 now be assigned separately; migration does not attempt to reverse historical
 copies or move media. Future plugin operations never call the physical catalog
-merge API. **Legacy performer account links** remains an import source for old
-settings. Reviewed registry choices, including intentional unlinks, take
-precedence; use the review screen to manage new associations.
+merge API. Since version 1.11, account associations are managed in **Catalog
+review** and stored in the registry. The legacy `performer_account_links` JSON
+setting is no longer read or offered in settings. Recreate any JSON-only links
+through the review page; associations already saved in the registry remain intact.
+Reviewed choices, including intentional unlinks, take precedence over automatic
+profile matching.
 
 ## Profile matching
 

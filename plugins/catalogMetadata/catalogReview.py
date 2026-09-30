@@ -52,7 +52,6 @@ def list_reviews(reader, stash):
     plan = performers_api.plan_links(reader, performers, settings, accounts=accounts)
     profiles, bindings = performers_api.saved_links(reader, settings)
     state = performers_api.registry_state(reader)
-    explicit = performers_api.effective_explicit(reader, settings)
     namespace = performers_api.namespace(settings)
     live = {str(p['id']): p for p in performers}
     rows, references = {}, defaultdict(set)
@@ -80,11 +79,10 @@ def list_reviews(reader, stash):
                 row['candidate_ids'].update(ids)
                 if len(ids) == 1:
                     row['performer_id'] = next(iter(ids))
-        for kind, mapping in (('saved_link', bindings), ('explicit_link', explicit)):
-            if key in mapping:
-                pid = performers_api.resolve_id(mapping[key], profiles)
-                row['evidence'].append({'kind': kind, 'performer_id': pid})
-                row['candidate_ids'].add(pid)
+        if key in bindings:
+            pid = performers_api.resolve_id(bindings[key], profiles)
+            row['evidence'].append({'kind': 'saved_link', 'performer_id': pid})
+            row['candidate_ids'].add(pid)
     for performer in performers:
         pid = str(performer['id'])
         for url in performer.get('urls', []):

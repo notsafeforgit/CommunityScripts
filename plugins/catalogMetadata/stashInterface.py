@@ -70,11 +70,6 @@ class StashInterface:
     def clear_performer_cache(self):
         self._performers = None
 
-    def gql_savePerformerLinks(self, links):
-        return self.__gql_call('''mutation($input: Map!) {
-            updatePluginSettingsV3(plugin_id: "catalogMetadata", input: $input)
-        }''', {'input': {'performer_account_links': links}})
-
     def get_hook_context(self):
         return self._fragment['args'].get('hookContext') or {}
 

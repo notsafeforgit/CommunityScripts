@@ -89,7 +89,6 @@ function register(host) {
     }) : msg("source_account", "Source account"))), /* @__PURE__ */ React.createElement(CardContent, { className: "catalog-review-stack" }, /* @__PURE__ */ React.createElement(Source, { account }), account.evidence?.length > 0 && /* @__PURE__ */ React.createElement("ul", { className: "catalog-review-evidence" }, account.evidence.map((item, index) => {
       const p = performers.find((person) => person.id === item.performer_id);
       const kind = {
-        explicit_link: msg("legacy_link", "Previously configured link"),
         saved_link: msg("saved", "Saved catalog link"),
         profile_url: msg("profile", "Performer profile URL"),
         name_only: msg("name_only", "Name or alias only; review required")

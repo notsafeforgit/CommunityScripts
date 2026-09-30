@@ -1,4 +1,5 @@
 import copy
+from contextlib import contextmanager
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -9,6 +10,7 @@ import catalogPerformers
 import test_performers
 from test_performers import performer
 from scrape_catalog.identities import read_state, transaction, Identities
+from scrape_catalog.store import Store
 from stashInterface import StashInterface
 
 
@@ -20,12 +22,12 @@ class ReviewTests(unittest.TestCase):
     def stash(self, profiles, settings=None):
         values = copy.deepcopy(settings or {})
         writes = []
-        def save(links):
-            writes.append(dict(links))
-            self.fail('Catalog review must not write Stash settings')
+        def update(*args):
+            writes.append(args)
+            self.fail('Catalog review must not mutate Stash entities')
         return SimpleNamespace(gql_allPerformers=lambda: copy.deepcopy(profiles),
                                gql_pluginSettings=lambda: copy.deepcopy(values),
-                               gql_savePerformerLinks=save, clear_performer_cache=lambda: None,
+                               gql_updateTitle=update, clear_performer_cache=lambda: None,
                                values=values, writes=writes)
 
     def apply(self, stash, **choice):
@@ -82,11 +84,40 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(rows['twitter:id:10']['status'], 'linked')
         self.assertEqual(rows['twitter:id:20']['status'], 'conflict')
 
-    def test_background_sync_reloads_choices_saved_while_it_waited(self):
+    def test_background_sync_reloads_registry_choices_before_planning(self):
         self.capture()
-        stash = self.stash([performer(1, 'One'), performer(2, 'Two')], {'performer_account_links': {'twitter:id:10': '2'}})
-        report = catalogPerformers.sync_links(self.reader, stash, {'performer_account_links': {'twitter:id:10': '1'}})
+        profiles = [performer(1, 'One', urls=['https://x.com/account']), performer(2, 'Two')]
+        stash = self.stash(profiles)
+        self.assertEqual(catalogPerformers.plan_links(self.reader, profiles, {})['links'][0]['performer_id'], '1')
+        original_lock, reviewed = Store.lock, False
+        @contextmanager
+        def lock_after_review(store):
+            nonlocal reviewed
+            if not reviewed:
+                reviewed = True
+                with transaction(self.store) as registry:
+                    uid = registry.ensure_binding('stash', '2', profiles[1])
+                    registry.associate('twitter:id:10', uid, 'review', 'Reviewed while sync waited')
+            with original_lock(store):
+                yield
+        with patch.object(Store, 'lock', lock_after_review):
+            report = catalogPerformers.sync_links(self.reader, stash, {})
         self.assertEqual(report['links'][0]['performer_id'], '2')
+
+    def test_background_sync_rechecks_current_sync_controls(self):
+        self.capture()
+        stash = self.stash([performer(1, 'One', urls=['https://x.com/account'])], {'sync_direction': 'import'})
+        report = catalogPerformers.sync_links(self.reader, stash, {'sync_direction': 'both'})
+        self.assertEqual(report['links'], [])
+        self.assertEqual(read_state(self.store.registry)['accounts'], {})
+
+    def test_legacy_json_is_not_review_evidence(self):
+        self.capture()
+        stash = self.stash([performer(1, 'One')], {'performer_account_links': {'twitter:id:10': '1'}})
+        row = review.list_reviews(self.reader, stash)['accounts'][0]
+        self.assertEqual(row['status'], 'unmatched')
+        self.assertEqual(row['evidence'], [])
+        self.assertEqual(row['candidate_ids'], [])
 
     def test_apply_changes_only_the_reviewed_account_with_no_catalog_copies(self):
         a = self.capture()
@@ -112,10 +143,10 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(len(review.list_reviews(self.reader, stash)['accounts']), 2)
         self.assertEqual(self.store.resolve(b), a)  # Existing evidence stays readable.
 
-    def test_unlink_persists_across_sync_and_old_json_cannot_reattach_it(self):
+    def test_reviewed_unlink_persists_across_profile_url_sync(self):
         self.capture()
         profiles = [performer(1, 'One', urls=['https://x.com/account'])]
-        stash = self.stash(profiles, {'performer_account_links': {'twitter:id:10': '1'}})
+        stash = self.stash(profiles)
         uid = self.apply(stash, account_key='twitter:id:10', performer_id='1')['identity_id']
         self.apply(stash, account_key='twitter:id:10', action='unlink')
         catalogPerformers.sync_links(self.reader, stash, stash.values)
@@ -228,7 +259,7 @@ class ReviewTests(unittest.TestCase):
         stash = StashInterface({'args': {'mode': 'operation', 'operation_type': 'query'}, 'server_connection': {'PluginDir': '.'}})
         with patch('requests.post', side_effect=AssertionError('Network request')):
             with self.assertRaisesRegex(RuntimeError, 'mutations are disabled'):
-                stash.gql_savePerformerLinks({'twitter:id:10': '1'})
+                stash.gql_updateTitle('scene', '1', 'Preview must not write')
 
 
 if __name__ == '__main__':
