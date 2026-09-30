@@ -201,6 +201,28 @@ try {
   await expect(page.getByRole("combobox", { name: "Show", exact: true })).toContainText("Needs review");
   await expect(page.getByRole("button", { name: /^Review account/ })).toHaveCount(12);
   assert.equal(await page.evaluate(() => window.reviewRequests.filter((r) => r.operation === "list_reviews").length), 1);
+  // Resolving two saved alias decisions collapses their cards without a full reload.
+  await page.goto("http://127.0.0.1:3028/stash/catalogMetadata/review?aliases");
+  await page.getByRole("button", { name: "Review account", exact: true }).click();
+  await picker.fill("Second person");
+  await page.getByRole("option", { name: /Sam \(Second person\)/ }).click();
+  await page.getByRole("button", { name: "Preview link", exact: true }).click();
+  await page.getByRole("button", { name: "Apply reviewed link" }).click();
+  await expect(page.getByText("Association saved", { exact: true })).toBeVisible();
+  await page.getByRole("combobox", { name: "Show", exact: true }).click();
+  await page.getByRole("option", { name: "All accounts", exact: true }).click();
+  await expect(page.getByText("1 source accounts", { exact: true })).toBeVisible();
+  await page.getByRole("textbox", { name: "Search", exact: true }).fill("reddit:handle:elsewhere");
+  await expect(page.getByText("1 source accounts", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Show source identifiers", exact: true }).click();
+  await expect(page.getByText("reddit:handle:elsewhere", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Review elsewhere", exact: true }).click();
+  await page.getByRole("button", { name: "Preview unlink", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Proposed changes" })).toContainText("This decision applies to both keys.");
+  await page.getByRole("button", { name: "Close review", exact: true }).click();
+  await page.getByRole("tab", { name: /Catalog performers/ }).click();
+  await expect(page.getByText("1 associated account", { exact: true })).toBeVisible();
+  assert.equal(await page.evaluate(() => window.reviewRequests.filter((r) => r.operation === "list_reviews").length), 1);
   assert.deepEqual(errors, []);
   console.log(
     "Catalog review browser checks passed: targeted card refresh, filter/page preservation, separate sources, UUID groups, link/unlink/bind, stale preview, dry run, mobile, base path.",

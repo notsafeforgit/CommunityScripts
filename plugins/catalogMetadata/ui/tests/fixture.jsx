@@ -78,6 +78,10 @@ const accounts = [
   },
 ];
 const params = new URLSearchParams(location.search);
+if (params.has("aliases")) Object.assign(accounts[0], {
+  account_key: "reddit:handle:elsewhere", platform: "reddit", source_id: null,
+  handles: ["elsewhere"], catalog_id: cidB,
+});
 if (params.has("many")) {
   for (let i = 0; i < 25; i++) accounts.push({
     ...structuredClone(accounts[0]), account_key: `twitter:id:extra${i}`,
@@ -98,7 +102,7 @@ const blocked = params.has("dry")
   ? "Dry run is enabled. Turn it off in Catalog Metadata settings to apply links."
   : null;
 let failList = params.has("fail-list");
-let failApply = !bindingState;
+let failApply = !bindingState && !params.has("aliases");
 const requests = [];
 window.reviewRequests = requests;
 function catalogPerformer() {
@@ -132,9 +136,9 @@ const client = new ApolloClient({
           observer.next({
             data: {
               pluginQueryV3: {
-                performers: people,
-                identities: [catalogPerformer()],
-                accounts,
+                performers: structuredClone(people),
+                identities: [structuredClone(catalogPerformer())],
+                accounts: structuredClone(accounts),
                 namespace: "stash",
                 blocked_reason: blocked,
                 unattached_conflicts: [],
@@ -198,6 +202,14 @@ const client = new ApolloClient({
               conflicts: [],
               performer_id: action === "unlink" ? null : "2",
             });
+          if (account && params.has("aliases") && action === "link") {
+            Object.assign(account, {
+              account_key: "reddit:id:t2_20", source_id: "t2_20", label: "elsewhere",
+              account_keys: ["reddit:handle:elsewhere", "reddit:id:t2_20"],
+            });
+            const other = accounts.findIndex((item) => item !== account && item.account_key === "reddit:id:t2_20");
+            if (other !== -1) accounts.splice(other, 1);
+          }
           observer.next({
             data: {
               pluginMutationV3: {

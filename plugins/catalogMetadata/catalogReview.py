@@ -4,6 +4,7 @@ import hashlib
 import json
 
 import catalogPerformers as performers_api
+import catalogAccountAliases as account_aliases
 
 
 def blocked_reason(settings):
@@ -21,8 +22,9 @@ def snapshot(reader, stash):
 
 
 def account_view(account):
-    return {key: account[key] for key in ('account_key', 'platform', 'source_id', 'identity_basis',
-                                         'handles', 'catalog_id', 'catalog_label', 'directories', 'profile_urls')}
+    return {**{key: account[key] for key in ('account_key', 'platform', 'source_id', 'identity_basis',
+                                           'handles', 'catalog_id', 'catalog_label', 'directories', 'profile_urls')},
+            'account_keys': account_aliases.account_keys(account)}
 
 
 def identity_views(state, accounts, live, namespace):
@@ -50,8 +52,8 @@ def list_reviews(reader, stash):
     from scrape_catalog.identities import resolve, binding_ids
     settings, performers, accounts = snapshot(reader, stash)
     plan = performers_api.plan_links(reader, performers, settings, accounts=accounts)
-    profiles, bindings = performers_api.saved_links(reader, settings)
-    state = performers_api.registry_state(reader)
+    state = account_aliases.project_state(performers_api.registry_state(reader), accounts)
+    profiles, bindings = performers_api.saved_links(reader, settings, state=state, accounts=accounts)
     namespace = performers_api.namespace(settings)
     live = {str(p['id']): p for p in performers}
     rows, references = {}, defaultdict(set)
@@ -88,7 +90,8 @@ def list_reviews(reader, stash):
         for url in performer.get('urls', []):
             keys = set().union(*(references.get(ref, set()) for ref in performers_api.profile_refs(url)))
             for key in keys:
-                rows[key]['evidence'].append({'kind': 'profile_url', 'performer_id': pid, 'url': url, 'ambiguous': len(keys) > 1})
+                rows[key]['evidence'].append({'kind': 'profile_url', 'performer_id': pid, 'url': url,
+                                             'account_keys': sorted(keys), 'ambiguous': len(keys) > 1})
                 rows[key]['candidate_ids'].add(pid)
     for candidate in plan['name_only_candidates']:
         row = rows[candidate['account_key']]
@@ -140,7 +143,7 @@ def review_link(reader, stash, request):
     """Preview one decision without scanning source catalogs or Stash performers."""
     from scrape_catalog.identities import resolve, binding_ids
     settings = stash.gql_pluginSettings()
-    state = performers_api.registry_state(reader)
+    raw_state = state = performers_api.registry_state(reader)
     profiles, legacy_bindings = performers_api.saved_links(reader, settings, state=state)
     namespace = performers_api.namespace(settings)
     action = request.get('action', 'link')
@@ -178,9 +181,19 @@ def review_link(reader, stash, request):
                 raise ValueError('This Stash performer already belongs to another catalog UUID. Review its account associations or merge the performers in Stash.')
         if pid and not uid:
             uid = profiles.get(pid, {}).get('identity_id')
+    accounts = performers_api.catalog_accounts(reader, {key}, catalog_ids, state=raw_state) if key else {}
+    key = account_aliases.canonical_key(accounts, key)
+    if key and key not in accounts:
+        raise ValueError('Choose an individual source account. Refresh the review list if it changed.')
+    state = account_aliases.project_state(raw_state, accounts)
     previous = state['accounts'].get(key, {}) if key else {}
     previous_id = resolve(previous.get('identity_id'), state)
     scope = identity_scope(state, [uid, previous_id], key)
+    missing = set(scope['accounts']) - accounts.keys()
+    if missing:
+        accounts.update(performers_api.catalog_accounts(reader, missing, catalog_ids, state=raw_state))
+        state = account_aliases.project_state(raw_state, accounts)
+        scope = identity_scope(state, [uid, previous_id], key)
     ids = {row['performer_id'] for row in scope['bindings'] if row['namespace'] == namespace}
     if pid:
         ids.add(pid)
@@ -189,10 +202,6 @@ def review_link(reader, stash, request):
         raise ValueError('This Stash performer no longer exists. Refresh the review list.')
     if action == 'bind' and (binding_ids(state, namespace, uid) & live.keys()) - {pid}:
         raise ValueError('This catalog performer is already bound to another current Stash performer in this library.')
-    keys = set(scope['accounts']) | ({key} if key else set())
-    accounts = performers_api.catalog_accounts(reader, keys, catalog_ids)
-    if key and key not in accounts:
-        raise ValueError('Choose an individual source account. Refresh the review list if it changed.')
     account = account_view(accounts[key]) if key else None
     group = state['identities'].get(uid)
     choice = {'action': action, 'account_key': key, 'performer_id': pid,
@@ -225,7 +234,10 @@ def affected_cards(reader, stash, settings, report, identity_id, state):
     ns = performers_api.namespace(settings)
     key = report['account']['account_key'] if report['account'] else None
     scope = identity_scope(state, [identity_id, report['previous_identity_id']], key)
-    accounts = performers_api.catalog_accounts(reader, scope['accounts'], report['choice']['catalog_ids'])
+    accounts = performers_api.catalog_accounts(reader, scope['accounts'], report['choice']['catalog_ids'], state=state)
+    state = account_aliases.project_state(state, accounts)
+    key = account_aliases.canonical_key(accounts, key)
+    scope = identity_scope(state, [identity_id, report['previous_identity_id']], key)
     ids = {row['performer_id'] for row in scope['bindings'] if row['namespace'] == ns}
     live = {str(p['id']): p for p in stash.gql_performersByIDs(ids)}
     rows = []
@@ -235,6 +247,8 @@ def affected_cards(reader, stash, settings, report, identity_id, state):
         conflicts = []
         if owners and (len(owners) != 1 or not owners <= live.keys()):
             conflicts.append({'account_key': account_key, 'performer_ids': sorted(owners), 'reason': BINDING_CONFLICT})
+        if accounts.get(account_key, {}).get('alias_conflict'):
+            conflicts.append(accounts[account_key]['alias_conflict'])
         row = {'account_key': account_key, 'identity_id': uid,
                'identity_name': state['identities'][uid]['profile']['name'] if uid else None,
                'performer_id': next(iter(owners)) if len(owners) == 1 and owners <= live.keys() else None,
@@ -274,7 +288,8 @@ def apply_link(reader, stash, request):
             if report['action'] == 'bind':
                 uid = registry.bind_existing(ns, profile['id'], uid, profile)
             elif report['action'] == 'unlink':
-                registry.associate(report['account']['account_key'], None, 'review', 'Explicitly unlinked in Catalog review')
+                for key in account_aliases.account_keys(report['account']):
+                    registry.associate(key, None, 'review', 'Explicitly unlinked in Catalog review')
             else:
                 if profile:
                     profile = performers_api.merged_profile(profile, [{'alias_list': report['account']['handles']}])
@@ -282,7 +297,8 @@ def apply_link(reader, stash, request):
                 else:
                     current = registry.state()['identities'][uid]['profile']
                     registry.update_profile(uid, performers_api.merged_profile(current, [{'alias_list': report['account']['handles']}]))
-                registry.associate(report['account']['account_key'], uid, 'review', 'Explicitly linked in Catalog review')
+                for key in account_aliases.account_keys(report['account']):
+                    registry.associate(key, uid, 'review', 'Explicitly linked in Catalog review')
             with Reader(reader.root, reader.media_root) as fresh:
                 updates = affected_cards(fresh, stash, settings, report, uid, registry.state())
     return {'action': report['action'], 'identity_id': uid,

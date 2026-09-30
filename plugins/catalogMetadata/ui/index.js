@@ -81,7 +81,7 @@ function register(host) {
         "aria-expanded": details
       },
       details ? msg("hide_details", "Hide source identifiers") : msg("show_details", "Show source identifiers")
-    )), details && /* @__PURE__ */ React.createElement("div", { className: "catalog-review-stack", "data-selectable-text": true }, /* @__PURE__ */ React.createElement("p", null, msg("account_key", "Account key"), ": ", /* @__PURE__ */ React.createElement("code", null, account.account_key)), /* @__PURE__ */ React.createElement("p", null, msg("source_catalog", "Source catalog ID"), ":", " ", /* @__PURE__ */ React.createElement("code", null, account.catalog_id))));
+    )), details && /* @__PURE__ */ React.createElement("div", { className: "catalog-review-stack", "data-selectable-text": true }, /* @__PURE__ */ React.createElement("p", null, msg("account_key", "Account key"), ": ", /* @__PURE__ */ React.createElement("code", null, account.account_key)), (account.account_keys?.length ?? 0) > 1 && /* @__PURE__ */ React.createElement("p", null, msg("account_aliases", "Also recorded as"), ": ", account.account_keys.filter((key) => key !== account.account_key).map((key) => /* @__PURE__ */ React.createElement("code", { key }, key))), /* @__PURE__ */ React.createElement("p", null, msg("source_catalog", "Source catalog ID"), ":", " ", /* @__PURE__ */ React.createElement("code", null, account.catalog_id))));
   }
   function Evidence({ account, performers }) {
     return /* @__PURE__ */ React.createElement(Card, { size: "sm" }, /* @__PURE__ */ React.createElement(CardHeader, null, /* @__PURE__ */ React.createElement(CardTitle, { className: "catalog-review-line" }, /* @__PURE__ */ React.createElement(Badge, { variant: "secondary" }, account.platform), account.handles.join(", ") || account.source_id), /* @__PURE__ */ React.createElement(CardDescription, null, account.identity_name ? msg("owned_by", "Catalog performer: {name}", {
@@ -336,6 +336,7 @@ function register(host) {
           platform: preview.account.platform,
           name: preview.account.handles.join(", ") || preview.account.source_id
         })),
+        (preview.account?.account_keys?.length ?? 0) > 1 && /* @__PURE__ */ React.createElement("p", null, msg("same_reddit_account", "The Reddit username and captured ID identify this same account. This decision applies to both keys.")),
         preview.associated_accounts.length > 0 && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("p", null, msg(
           "other_accounts",
           "Other accounts already associated with this performer:"
@@ -399,10 +400,15 @@ function register(host) {
       setData((current) => {
         const updates = result.updates;
         if (current.namespace !== updates.namespace) return current;
-        const changed = new Map(updates.accounts.map((account) => [account.account_key, account]));
-        const accounts = current.accounts.map((account) => {
+        const changed = new Map(updates.accounts.flatMap(
+          (account) => (account.account_keys ?? [account.account_key]).map((key) => [key, account])
+        ));
+        const seen = /* @__PURE__ */ new Set();
+        const accounts = current.accounts.flatMap((account) => {
           const update = changed.get(account.account_key);
-          if (!update) return account;
+          if (!update) return [account];
+          if (seen.has(update.account_key)) return [];
+          seen.add(update.account_key);
           const { reviewed, binding_conflicts, candidate_ids, ...association } = update;
           const conflicts = [
             ...reviewed ? [] : account.conflicts.filter(
@@ -410,9 +416,13 @@ function register(host) {
             ),
             ...binding_conflicts
           ];
-          const evidence = account.evidence.filter((item) => item.kind !== "saved_link");
+          const evidence = account.evidence.filter((item) => item.kind !== "saved_link").map((item) => {
+            if (item.kind !== "profile_url" || !item.account_keys) return item;
+            const keys = [...new Set(item.account_keys.map((key) => changed.get(key)?.account_key ?? key))];
+            return { ...item, account_keys: keys, ambiguous: keys.length > 1 };
+          });
           if (update.performer_id) evidence.unshift({ kind: "saved_link", performer_id: update.performer_id });
-          return {
+          return [{
             ...account,
             ...association,
             conflicts,
@@ -420,7 +430,7 @@ function register(host) {
             label: update.handles?.join(", ") || update.source_id || account.label,
             status: conflicts.length ? "conflict" : update.status,
             candidate_ids: [.../* @__PURE__ */ new Set([...candidate_ids, ...evidence.map((item) => item.performer_id)])].sort()
-          };
+          }];
         });
         const merge = (existing, changed2) => [...new Map(
           [...existing, ...changed2].map((item) => [item.id, item])
@@ -562,6 +572,7 @@ function register(host) {
               )) && matches([
                 row.label,
                 row.account_key,
+                ...row.account_keys ?? [],
                 row.catalog_id,
                 row.identity_name,
                 row.identity_id,
@@ -582,6 +593,7 @@ function register(host) {
                 ...identity.alias_list ?? [],
                 ...identity.accounts.flatMap((a) => [
                   a.account_key,
+                  ...a.account_keys ?? [],
                   ...a.handles ?? [],
                   ...a.directories ?? []
                 ])

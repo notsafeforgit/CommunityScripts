@@ -400,6 +400,19 @@ in plugin settings.
 evidence. Unlabeled catalog hashes are no longer presented as additional entities;
 **Show source identifiers** reveals the account key and source catalog ID.
 
+Since version 1.13, a legacy Reddit username key and its captured `t2_` account
+ID appear as one account when the same source catalog records that username
+against exactly one ID. Existing links under either key remain effective for
+imports, review and synchronization. Both original keys remain visible under
+**Show source identifiers**; applying a link or unlink covers both. Browsing
+does not rewrite source metadata or registry records. New captures use this same
+rule automatically, including previously reviewed inventory-only folders.
+
+Different source IDs, mismatched usernames and contradictory saved associations
+remain conflicts. A shared folder alone never establishes identity. This rule
+is specific to [Reddit's permanent usernames](https://support.reddithelp.com/hc/en-us/articles/204579479-Can-I-change-my-username); mutable handles on Twitter/X and
+other services retain their existing ambiguity checks.
+
 1. Filter/search accounts. **Conflicting links** indicates competing evidence;
    **Name or alias match** needs a decision; **Ready to review** has profile/link
    evidence. **All accounts** includes unmatched and intentionally unlinked items.
