@@ -1,12 +1,14 @@
 """Configurable mappings evaluated by Stash's shared jq API."""
 import json
 import os
+from pathlib import Path
 
 import config
 import log
 from catalogReader import get_reader, mapping_context, write_overrides
 
 IMPORT_MARKER = 'catalogMetadata:import'
+MAPPING_TARGETS = json.loads(Path(__file__).with_name('mappingTargets.json').read_text())
 
 
 def preview_update_input(kind, item):
@@ -50,6 +52,11 @@ class CatalogMappings:
                     value = json.loads(value)
                 if not isinstance(value, dict) or any(not k or not isinstance(v, str) for k, v in value.items()):
                     raise ValueError(f'{key} must be an object of target fields and jq expressions')
+                allowed = {target['name'] for target in MAPPING_TARGETS[key]}
+                unsupported = set(value) - allowed
+                if unsupported:
+                    raise ValueError(f'{key}: unsupported mapping targets: {", ".join(sorted(unsupported))}. '
+                                     f'Choose from: {", ".join(sorted(allowed))}')
                 self.mappings[key] = value
         # Keep config.py as the fallback for existing, undeclared preferences.
         for key, value in settings.items():

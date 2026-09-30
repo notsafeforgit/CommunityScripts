@@ -1,7 +1,7 @@
 apiVersion: 3
 name: Catalog Metadata
 description: Import catalog metadata and map Stash edits back to manual catalog fields
-version: 1.9.0
+version: 1.10.0
 url: https://github.com/notsafeforgit/CommunityScripts/tree/main/plugins/catalogMetadata
 exec:
 - python
@@ -149,21 +149,130 @@ settings:
   scene_import_mappings:
     type: JSON
     editor: JQ_MAP
+    mappingTargets:
+    - name: title
+      label: Title
+      type: String
+      description: The item title.
+    - name: details
+      label: Details
+      type: String
+      description: Description or caption.
+    - name: date
+      label: Date
+      type: String
+      description: Publication date in YYYY-MM-DD format.
+    - name: urls
+      label: URLs
+      type: '[String!]'
+      description: List of source or reference URLs.
+    - name: code
+      label: Code
+      type: String
+      description: External identifying code.
+    - name: rating100
+      label: Rating
+      type: Int
+      description: Rating from 0 to 100.
+    - name: organized
+      label: Organized
+      type: Boolean
+      description: Whether the item is marked organized.
+    - name: studio_id
+      label: Studio
+      type: ID
+      description: An existing Stash studio ID; null clears the studio.
+    - name: performer_ids
+      label: Performers
+      type: '[ID!]'
+      description: Existing Stash performer IDs, not names. Replaces the performer list.
+    - name: tag_ids
+      label: Tags
+      type: '[ID!]'
+      description: Existing Stash tag IDs, not names. Replaces the tag list.
+    - name: gallery_ids
+      label: Galleries
+      type: '[ID!]'
+      description: Existing Stash gallery IDs. Replaces the gallery list.
+    - name: custom_fields
+      label: Custom fields
+      type: CustomFieldsInput
+      description: 'Use {partial: {key: value}} to patch fields, {full: {...}} to replace all fields, or {remove: ["key"]}
+        to remove fields.'
+    - name: director
+      label: Director
+      type: String
+      description: Director name.
+    - name: production_date
+      label: Production date
+      type: String
+      description: Production date in YYYY-MM-DD format.
+    - name: groups
+      label: Groups
+      type: '[SceneGroupInput!]'
+      description: 'Objects with group_id and optional scene_index, for example [{group_id: "12", scene_index: 1}].
+        Replaces the group list.'
+    - name: cover_image
+      label: Cover image
+      type: String
+      description: An image URL or base64 image data accepted by Stash.
+    - name: stash_ids
+      label: Stash IDs
+      type: '[StashIDInput!]'
+      description: 'External metadata identifiers, for example [{endpoint: "https://example.com/graphql", stash_id:
+        "uuid"}].'
     preview:
       entity: SCENE
       description: Tests custom mappings only, including organized items. An empty mapping returns {}. Does not run the standard import, title fallback, or entity creation.
     displayName: Scene import mappings
-    description: 'Map each target Stash update field to a jq expression. Input: .catalog (resolved metadata), .observations[].payload
+    description: 'Choose a supported Stash metadata field and enter its jq expression. Input: .catalog (resolved metadata), .observations[].payload
       (source JSON), .stash (current item), .path. Overrides standard imports; empty leaves a field untouched.'
     default: {}
   scene_export_mappings:
     type: JSON
     editor: JQ_MAP
+    mappingTargets:
+    - name: title
+      label: Title
+      type: String | null
+      description: Nonempty title; null removes the manual override.
+    - name: details
+      label: Details
+      type: String | null
+      description: Nonempty description or caption; null inherits source metadata.
+    - name: date
+      label: Date
+      type: String | null
+      description: Date in YYYY-MM-DD format; null inherits source metadata.
+    - name: director
+      label: Director
+      type: String | null
+      description: Nonempty director name; null inherits source metadata.
+    - name: studio
+      label: Studio
+      type: String | null
+      description: Nonempty studio name, not a Stash ID; null inherits source metadata.
+    - name: movie
+      label: Group / movie
+      type: String | null
+      description: Nonempty group or movie name; null inherits source metadata.
+    - name: actors
+      label: Performers
+      type: '[String!] | null'
+      description: Nonempty list of performer names. The catalog field is named actors; null inherits source metadata.
+    - name: tags
+      label: Tags
+      type: '[String!] | null'
+      description: Nonempty list of tag names, not Stash IDs; null inherits source metadata.
+    - name: urls
+      label: URLs
+      type: '[String!] | null'
+      description: Nonempty list of URLs; null inherits source metadata.
     preview:
       entity: SCENE
       description: Simulates a metadata edit using current values. Edit .fields and .input in the sample JSON to test specific changes. The refresh tag is omitted from .stash.tags. Shows jq output before unchanged-value filtering; nothing is written.
     displayName: Scene export mappings
-    description: 'Map each target catalog manual field to a jq expression. Input also includes .fields (changed Stash
+    description: 'Map each target catalog manual field to a jq expression. Input also includes .fields (submitted Stash
       fields) and .input. The refresh tag is omitted from .stash.tags. Supported targets: title, details, date, director, studio, movie, actors,
       tags, urls. Empty skips; null removes an override and inherits source metadata.'
     default:
@@ -180,21 +289,112 @@ settings:
   image_import_mappings:
     type: JSON
     editor: JQ_MAP
+    mappingTargets:
+    - name: title
+      label: Title
+      type: String
+      description: The item title.
+    - name: details
+      label: Details
+      type: String
+      description: Description or caption.
+    - name: date
+      label: Date
+      type: String
+      description: Publication date in YYYY-MM-DD format.
+    - name: urls
+      label: URLs
+      type: '[String!]'
+      description: List of source or reference URLs.
+    - name: code
+      label: Code
+      type: String
+      description: External identifying code.
+    - name: rating100
+      label: Rating
+      type: Int
+      description: Rating from 0 to 100.
+    - name: organized
+      label: Organized
+      type: Boolean
+      description: Whether the item is marked organized.
+    - name: studio_id
+      label: Studio
+      type: ID
+      description: An existing Stash studio ID; null clears the studio.
+    - name: performer_ids
+      label: Performers
+      type: '[ID!]'
+      description: Existing Stash performer IDs, not names. Replaces the performer list.
+    - name: tag_ids
+      label: Tags
+      type: '[ID!]'
+      description: Existing Stash tag IDs, not names. Replaces the tag list.
+    - name: gallery_ids
+      label: Galleries
+      type: '[ID!]'
+      description: Existing Stash gallery IDs. Replaces the gallery list.
+    - name: custom_fields
+      label: Custom fields
+      type: CustomFieldsInput
+      description: 'Use {partial: {key: value}} to patch fields, {full: {...}} to replace all fields, or {remove: ["key"]}
+        to remove fields.'
+    - name: photographer
+      label: Photographer
+      type: String
+      description: Photographer name.
     preview:
       entity: IMAGE
       description: Tests custom mappings only, including organized items. An empty mapping returns {}. Does not run the standard import, title fallback, or entity creation.
     displayName: Image import mappings
-    description: 'Map each target Stash update field to a jq expression. Input: .catalog (resolved metadata), .observations[].payload
+    description: 'Choose a supported Stash metadata field and enter its jq expression. Input: .catalog (resolved metadata), .observations[].payload
       (source JSON), .stash (current item), .path. Overrides standard imports; empty leaves a field untouched.'
     default: {}
   image_export_mappings:
     type: JSON
     editor: JQ_MAP
+    mappingTargets:
+    - name: title
+      label: Title
+      type: String | null
+      description: Nonempty title; null removes the manual override.
+    - name: details
+      label: Details
+      type: String | null
+      description: Nonempty description or caption; null inherits source metadata.
+    - name: date
+      label: Date
+      type: String | null
+      description: Date in YYYY-MM-DD format; null inherits source metadata.
+    - name: director
+      label: Director
+      type: String | null
+      description: Nonempty director name; null inherits source metadata.
+    - name: studio
+      label: Studio
+      type: String | null
+      description: Nonempty studio name, not a Stash ID; null inherits source metadata.
+    - name: movie
+      label: Group / movie
+      type: String | null
+      description: Nonempty group or movie name; null inherits source metadata.
+    - name: actors
+      label: Performers
+      type: '[String!] | null'
+      description: Nonempty list of performer names. The catalog field is named actors; null inherits source metadata.
+    - name: tags
+      label: Tags
+      type: '[String!] | null'
+      description: Nonempty list of tag names, not Stash IDs; null inherits source metadata.
+    - name: urls
+      label: URLs
+      type: '[String!] | null'
+      description: Nonempty list of URLs; null inherits source metadata.
     preview:
       entity: IMAGE
       description: Simulates a metadata edit using current values. Edit .fields and .input in the sample JSON to test specific changes. The refresh tag is omitted from .stash.tags. Shows jq output before unchanged-value filtering; nothing is written.
     displayName: Image export mappings
-    description: 'Map each target catalog manual field to a jq expression. Input also includes .fields (changed Stash
+    description: 'Map each target catalog manual field to a jq expression. Input also includes .fields (submitted Stash
       fields) and .input. The refresh tag is omitted from .stash.tags. Supported targets: title, details, date, director, studio, movie, actors,
       tags, urls. Empty skips; null removes an override and inherits source metadata.'
     default:

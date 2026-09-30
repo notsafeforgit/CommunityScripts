@@ -62,6 +62,37 @@ class MappingTests(unittest.TestCase):
     def reader_patch(self):
         return patch.object(catalogMappings, 'get_reader', return_value=self.reader)
 
+    def test_mapping_target_schema_matches_manifest_and_catalog_writer(self):
+        from scrape_catalog.edits import FIELDS
+        manifest = yaml.safe_load((ROOT / 'catalogMetadata.yml').read_text())['settings']
+        for name, targets in catalogMappings.MAPPING_TARGETS.items():
+            self.assertEqual(manifest[name]['mappingTargets'], targets)
+            names = {target['name'] for target in targets}
+            self.assertEqual(len(names), len(targets))
+            self.assertLessEqual(set(SETTINGS[name]), names)
+            if '_export_' in name:
+                self.assertEqual(names, FIELDS)
+            else:
+                self.assertTrue(names.isdisjoint({'id', 'clientMutationId', 'primary_file_id',
+                                                 'play_count', 'play_duration', 'resume_time', 'url', 'movies'}))
+        scene = {target['name'] for target in catalogMappings.MAPPING_TARGETS['scene_import_mappings']}
+        image = {target['name'] for target in catalogMappings.MAPPING_TARGETS['image_import_mappings']}
+        self.assertIn('director', scene)
+        self.assertNotIn('director', image)
+        self.assertIn('photographer', image)
+        self.assertNotIn('photographer', scene)
+
+    def test_unsupported_mapping_targets_fail_before_evaluation_even_when_empty(self):
+        for name, targets in {
+                'scene_import_mappings': ('id', 'clientMutationId', 'primary_file_id', 'photographer', 'play_duration'),
+                'image_import_mappings': ('id', 'primary_file_id', 'director', 'movie'),
+                'scene_export_mappings': ('payload', 'observations', 'performer_ids', 'custom_fields'),
+                'image_export_mappings': ('payload', 'observations', 'performer_ids', 'rating100'),
+        }.items():
+            for target in targets:
+                with self.subTest(setting=name, target=target), self.assertRaisesRegex(ValueError, 'unsupported mapping targets'):
+                    self.mappings(**{name: {target: 'empty'}})
+
     def test_custom_import_handles_raw_fields_null_false_and_custom_fields(self):
         self.capture()
         mappings = self.mappings(scene_import_mappings={

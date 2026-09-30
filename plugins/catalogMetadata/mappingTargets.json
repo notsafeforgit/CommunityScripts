@@ -1,0 +1,298 @@
+{
+  "scene_import_mappings": [
+    {
+      "name": "title",
+      "label": "Title",
+      "type": "String",
+      "description": "The item title."
+    },
+    {
+      "name": "details",
+      "label": "Details",
+      "type": "String",
+      "description": "Description or caption."
+    },
+    {
+      "name": "date",
+      "label": "Date",
+      "type": "String",
+      "description": "Publication date in YYYY-MM-DD format."
+    },
+    {
+      "name": "urls",
+      "label": "URLs",
+      "type": "[String!]",
+      "description": "List of source or reference URLs."
+    },
+    {
+      "name": "code",
+      "label": "Code",
+      "type": "String",
+      "description": "External identifying code."
+    },
+    {
+      "name": "rating100",
+      "label": "Rating",
+      "type": "Int",
+      "description": "Rating from 0 to 100."
+    },
+    {
+      "name": "organized",
+      "label": "Organized",
+      "type": "Boolean",
+      "description": "Whether the item is marked organized."
+    },
+    {
+      "name": "studio_id",
+      "label": "Studio",
+      "type": "ID",
+      "description": "An existing Stash studio ID; null clears the studio."
+    },
+    {
+      "name": "performer_ids",
+      "label": "Performers",
+      "type": "[ID!]",
+      "description": "Existing Stash performer IDs, not names. Replaces the performer list."
+    },
+    {
+      "name": "tag_ids",
+      "label": "Tags",
+      "type": "[ID!]",
+      "description": "Existing Stash tag IDs, not names. Replaces the tag list."
+    },
+    {
+      "name": "gallery_ids",
+      "label": "Galleries",
+      "type": "[ID!]",
+      "description": "Existing Stash gallery IDs. Replaces the gallery list."
+    },
+    {
+      "name": "custom_fields",
+      "label": "Custom fields",
+      "type": "CustomFieldsInput",
+      "description": "Use {partial: {key: value}} to patch fields, {full: {...}} to replace all fields, or {remove: [\"key\"]} to remove fields."
+    },
+    {
+      "name": "director",
+      "label": "Director",
+      "type": "String",
+      "description": "Director name."
+    },
+    {
+      "name": "production_date",
+      "label": "Production date",
+      "type": "String",
+      "description": "Production date in YYYY-MM-DD format."
+    },
+    {
+      "name": "groups",
+      "label": "Groups",
+      "type": "[SceneGroupInput!]",
+      "description": "Objects with group_id and optional scene_index, for example [{group_id: \"12\", scene_index: 1}]. Replaces the group list."
+    },
+    {
+      "name": "cover_image",
+      "label": "Cover image",
+      "type": "String",
+      "description": "An image URL or base64 image data accepted by Stash."
+    },
+    {
+      "name": "stash_ids",
+      "label": "Stash IDs",
+      "type": "[StashIDInput!]",
+      "description": "External metadata identifiers, for example [{endpoint: \"https://example.com/graphql\", stash_id: \"uuid\"}]."
+    }
+  ],
+  "image_import_mappings": [
+    {
+      "name": "title",
+      "label": "Title",
+      "type": "String",
+      "description": "The item title."
+    },
+    {
+      "name": "details",
+      "label": "Details",
+      "type": "String",
+      "description": "Description or caption."
+    },
+    {
+      "name": "date",
+      "label": "Date",
+      "type": "String",
+      "description": "Publication date in YYYY-MM-DD format."
+    },
+    {
+      "name": "urls",
+      "label": "URLs",
+      "type": "[String!]",
+      "description": "List of source or reference URLs."
+    },
+    {
+      "name": "code",
+      "label": "Code",
+      "type": "String",
+      "description": "External identifying code."
+    },
+    {
+      "name": "rating100",
+      "label": "Rating",
+      "type": "Int",
+      "description": "Rating from 0 to 100."
+    },
+    {
+      "name": "organized",
+      "label": "Organized",
+      "type": "Boolean",
+      "description": "Whether the item is marked organized."
+    },
+    {
+      "name": "studio_id",
+      "label": "Studio",
+      "type": "ID",
+      "description": "An existing Stash studio ID; null clears the studio."
+    },
+    {
+      "name": "performer_ids",
+      "label": "Performers",
+      "type": "[ID!]",
+      "description": "Existing Stash performer IDs, not names. Replaces the performer list."
+    },
+    {
+      "name": "tag_ids",
+      "label": "Tags",
+      "type": "[ID!]",
+      "description": "Existing Stash tag IDs, not names. Replaces the tag list."
+    },
+    {
+      "name": "gallery_ids",
+      "label": "Galleries",
+      "type": "[ID!]",
+      "description": "Existing Stash gallery IDs. Replaces the gallery list."
+    },
+    {
+      "name": "custom_fields",
+      "label": "Custom fields",
+      "type": "CustomFieldsInput",
+      "description": "Use {partial: {key: value}} to patch fields, {full: {...}} to replace all fields, or {remove: [\"key\"]} to remove fields."
+    },
+    {
+      "name": "photographer",
+      "label": "Photographer",
+      "type": "String",
+      "description": "Photographer name."
+    }
+  ],
+  "scene_export_mappings": [
+    {
+      "name": "title",
+      "label": "Title",
+      "type": "String | null",
+      "description": "Nonempty title; null removes the manual override."
+    },
+    {
+      "name": "details",
+      "label": "Details",
+      "type": "String | null",
+      "description": "Nonempty description or caption; null inherits source metadata."
+    },
+    {
+      "name": "date",
+      "label": "Date",
+      "type": "String | null",
+      "description": "Date in YYYY-MM-DD format; null inherits source metadata."
+    },
+    {
+      "name": "director",
+      "label": "Director",
+      "type": "String | null",
+      "description": "Nonempty director name; null inherits source metadata."
+    },
+    {
+      "name": "studio",
+      "label": "Studio",
+      "type": "String | null",
+      "description": "Nonempty studio name, not a Stash ID; null inherits source metadata."
+    },
+    {
+      "name": "movie",
+      "label": "Group / movie",
+      "type": "String | null",
+      "description": "Nonempty group or movie name; null inherits source metadata."
+    },
+    {
+      "name": "actors",
+      "label": "Performers",
+      "type": "[String!] | null",
+      "description": "Nonempty list of performer names. The catalog field is named actors; null inherits source metadata."
+    },
+    {
+      "name": "tags",
+      "label": "Tags",
+      "type": "[String!] | null",
+      "description": "Nonempty list of tag names, not Stash IDs; null inherits source metadata."
+    },
+    {
+      "name": "urls",
+      "label": "URLs",
+      "type": "[String!] | null",
+      "description": "Nonempty list of URLs; null inherits source metadata."
+    }
+  ],
+  "image_export_mappings": [
+    {
+      "name": "title",
+      "label": "Title",
+      "type": "String | null",
+      "description": "Nonempty title; null removes the manual override."
+    },
+    {
+      "name": "details",
+      "label": "Details",
+      "type": "String | null",
+      "description": "Nonempty description or caption; null inherits source metadata."
+    },
+    {
+      "name": "date",
+      "label": "Date",
+      "type": "String | null",
+      "description": "Date in YYYY-MM-DD format; null inherits source metadata."
+    },
+    {
+      "name": "director",
+      "label": "Director",
+      "type": "String | null",
+      "description": "Nonempty director name; null inherits source metadata."
+    },
+    {
+      "name": "studio",
+      "label": "Studio",
+      "type": "String | null",
+      "description": "Nonempty studio name, not a Stash ID; null inherits source metadata."
+    },
+    {
+      "name": "movie",
+      "label": "Group / movie",
+      "type": "String | null",
+      "description": "Nonempty group or movie name; null inherits source metadata."
+    },
+    {
+      "name": "actors",
+      "label": "Performers",
+      "type": "[String!] | null",
+      "description": "Nonempty list of performer names. The catalog field is named actors; null inherits source metadata."
+    },
+    {
+      "name": "tags",
+      "label": "Tags",
+      "type": "[String!] | null",
+      "description": "Nonempty list of tag names, not Stash IDs; null inherits source metadata."
+    },
+    {
+      "name": "urls",
+      "label": "URLs",
+      "type": "[String!] | null",
+      "description": "Nonempty list of URLs; null inherits source metadata."
+    }
+  ]
+}

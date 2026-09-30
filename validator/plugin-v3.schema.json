@@ -362,8 +362,58 @@
                 "type": "string"
               }
             }
+          },
+          "mappingTargets": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "label",
+                "type"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "type": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": {
+                  "type": "string"
+                }
+              }
+            }
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "mappingTargets"
+              ]
+            },
+            "then": {
+              "required": [
+                "editor"
+              ],
+              "properties": {
+                "editor": {
+                  "const": "JQ_MAP"
+                }
+              }
+            }
+          }
+        ]
       }
     },
     "StringList": {

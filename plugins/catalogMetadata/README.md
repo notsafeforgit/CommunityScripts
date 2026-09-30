@@ -194,6 +194,31 @@ disables exports for that entity type):
 | `details` | `select(.fields \| index("custom_fields")) \| .stash.custom_fields.catalog_caption // empty` |
 | `actors` | `select(.fields \| index("performer_ids")) \| [.stash.performers[].name]` |
 
+Version 1.10 requires a Stash v3 host with `mappingTargets` support. Target
+fields are selected from dropdowns; each choice shows its expected value shape.
+The manifest and runtime use the definitions in `mappingTargets.json`, with a
+regression check against the catalog writer's allowed fields.
+
+Export targets are exactly the catalog manual-edit schema: `title`, `details`,
+`date`, `director`, `studio`, `movie`, `actors`, `tags`, and `urls`. `actors` is
+shown as **Performers** in the editor. These write manual overrides, never raw
+post observations, account snapshots, captures or catalog identifiers. The last
+three fields take nonempty lists of strings; the others take nonempty strings.
+Dates use `YYYY-MM-DD`. `null` removes an override, and `empty` leaves it alone.
+
+Import targets shared by scenes and images are `title`, `details`, `date`,
+`urls`, `code`, `rating100`, `organized`, `studio_id`, `performer_ids`, `tag_ids`,
+`gallery_ids`, and `custom_fields`. Scenes also support `director`,
+`production_date`, `groups`, `cover_image`, and `stash_ids`; images also support
+`photographer`. Relations use existing Stash IDs, not names. `custom_fields`
+accepts Stash's `full`, `partial` and `remove` update object.
+
+Import mappings cannot change the entity ID, hook bookkeeping, primary file,
+playback state or counters. Deprecated `url`/`movies` targets are excluded; use
+`urls`/`groups`. An existing unsupported mapping stays visible for repair in the
+editor; the host rejects saving it and the plugin rejects it before evaluation.
+Removing all mappings remains valid and restores standard import behavior.
+
 Both directions receive:
 
 - `.stash`: current scene/image, including editable scalar fields, custom fields,
