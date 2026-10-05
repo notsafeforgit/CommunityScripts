@@ -190,9 +190,9 @@ class CatalogMetadataPlugin:
             item_tag_ids.remove(self._reload_tag_id)
         # Currently supports only one movie (the first one...)
         item_movie_id = item_movie_index = None
-        if self._item_type == "scene" and self._item.get("movies"):
-            item_movie_id = self._item.get("movies")[0]["movie"]["id"]
-            item_movie_index = self._item.get("movies")[0]["scene_index"]
+        if self._item_type == "scene" and self._item.get("groups"):
+            item_movie_id = self._item.get("groups")[0]["group"]["id"]
+            item_movie_index = self._item.get("groups")[0]["scene_index"]
 
         # Merge catalog and filename metadata with existing item data.
         bl = config.blacklist
@@ -403,11 +403,11 @@ class CatalogMetadataPlugin:
         if not self._file_data["movie"]:
             return
         movie_id = None
-        movies = self._stash.gql_findMovies(self._file_data["movie"])
+        movies = self._stash.gql_findGroups(self._file_data["movie"])
         matching_id = None
         # [ ] possible improvement: support movie aliases?
         # Ensure direct name match
-        for movie in movies["movies"]:
+        for movie in movies["groups"]:
             if self.__is_matching(self._file_data["movie"], movie["name"]):
                 if not matching_id:
                     matching_id = movie["id"]
@@ -417,7 +417,7 @@ class CatalogMetadataPlugin:
                 log.LogInfo(
                     f"'{self._file_data['movie']}' movie creation prevented by config")
             else:
-                new_movie = self._stash.gql_movieCreate(
+                new_movie = self._stash.gql_groupCreate(
                     self._file_data, studio_id, self._folder_data)
                 movie_id = new_movie["id"]
                 log.LogInfo(

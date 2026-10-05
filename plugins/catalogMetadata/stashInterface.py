@@ -116,7 +116,7 @@ class StashInterface:
             updated_at
             custom_fields
             galleries { id title }
-            groups { group { id name } scene_index }
+            groups { group { id name director } scene_index }
             files {
                 id
                 path
@@ -124,12 +124,6 @@ class StashInterface:
             }
             studio {
                 ...SlimStudioData
-            }
-            movies {
-                movie {
-                    ...SlimMovieData
-                }
-                scene_index
             }
             tags {
                 ...SlimTagData
@@ -145,11 +139,6 @@ class StashInterface:
         fragment SlimStudioData on Studio {
             id
             name
-        }
-        fragment SlimMovieData on Movie {
-            id
-            name
-            director
         }
         fragment SlimTagData on Tag {
             id
@@ -232,102 +221,32 @@ class StashInterface:
                         self._path_rewrite[0], self._path_rewrite[1])
         return result.get("findImage")
 
-    def gql_findScenes(self, tag_id=None):
-        query = """
-        query FindScenes($scene_filter: SceneFilterType, $filter: FindFilterType) {
-            findScenes(scene_filter: $scene_filter, filter: $filter) {
+    @staticmethod
+    def _condition(field, value, modifier):
+        return {"condition": {"field": field, "value": {"value": value, "modifier": modifier}}}
+
+    def _find_reload_items(self, entity, tag_id):
+        plural = entity.lower() + "s"
+        query = f"""
+        query Find{entity}s($ast: FilterASTInput, $filter: FindFilterType) {{
+            find{entity}s({entity.lower()}_filter_ast: $ast, filter: $filter) {{
                 count
-                scenes {
-                    ...SlimSceneData
-                }
-            }
-        }
-        fragment SlimSceneData on Scene {
-            id
-            organized
-            tags {
-                id
-                name
-            }
-        }
+                {plural} {{ id organized tags {{ id name }} }}
+            }}
+        }}
         """
         variables = {
-            "scene_filter": None,
-            "filter": {
-                "direction": "ASC",
-                "page": 1,
-                "per_page": -1,
-                "sort": "updated_at"
-            }
+            "ast": {"root": self._condition("tags", [str(tag_id)], "INCLUDES")} if tag_id else None,
+            "filter": {"direction": "ASC", "page": 1, "per_page": -1, "sort": "updated_at"},
         }
-        if tag_id:
-            variables["scene_filter"] = {
-                "tags": {
-                    "value": tag_id,
-                    "modifier": "INCLUDES"
-                }
-            }
         result = self.__gql_call(query, variables)
-        return result.get("findScenes")
+        return result.get("find" + entity + "s") or {"count": 0, plural: []}
+
+    def gql_findScenes(self, tag_id=None):
+        return self._find_reload_items("Scene", tag_id)
 
     def gql_findImages(self, tag_id=None):
-        query = """
-        query FindImages($image_filter: ImageFilterType, $filter: FindFilterType) {
-            findImages(image_filter: $image_filter, filter: $filter) {
-                count
-                images {
-                    id
-                    organized
-                    tags {
-                        id
-                        name
-                    }
-                }
-            }
-        }
-        """
-        base_filter = {
-            "direction": "ASC",
-            "page": 1,
-            "per_page": -1,
-            "sort": "updated_at"
-        }
-        image_filter = None
-        if tag_id:
-            image_filter = {
-                "tags": {
-                    "value": [tag_id],
-                    "modifier": "INCLUDES"
-                }
-            }
-        variables = {
-            "image_filter": image_filter,
-            "filter": base_filter
-        }
-        result = self.__gql_call(query, variables)
-        images_data = result.get("findImages") or {}
-        images_list = images_data.get("images") or []
-        if tag_id:
-            # Ensure tag filter by id in case backend ignores the filter (older schemas)
-            images_list = [image for image in images_list if any(
-                (tag.get("id") == tag_id) for tag in (image.get("tags") or [])
-            )]
-            # Fallback: retry without GraphQL filter and filter client-side if nothing found
-            if not images_list:
-                variables = {
-                    "image_filter": None,
-                    "filter": base_filter
-                }
-                fallback_result = self.__gql_call(query, variables)
-                fallback_data = fallback_result.get("findImages") or {}
-                images_list = [image for image in (fallback_data.get("images") or []) if any(
-                    (tag.get("id") == tag_id) for tag in (image.get("tags") or [])
-                )]
-                images_data["count"] = len(images_list)
-        if tag_id:
-            images_data["images"] = images_list
-            images_data["count"] = len(images_list)
-        return images_data
+        return self._find_reload_items("Image", tag_id)
 
     def gql_updateTitle(self, item_type, item_id, title):
         if item_type not in ('scene', 'image'):
@@ -369,10 +288,10 @@ class StashInterface:
             input_data.update({"organized": True})
         # Update movie if exists
         if scene_data["movie_id"] is not None:
-            input_data["movies"] = {
-                "movie_id": scene_data["movie_id"],
+            input_data["groups"] = [{
+                "group_id": scene_data["movie_id"],
                 "scene_index": scene_data["scene_index"],
-            }
+            }]
         if map_input is not None:
             input_data = map_input(input_data)
         if config.dry_mode:
@@ -465,10 +384,10 @@ class StashInterface:
         result = self.__gql_call(query, variables)
         return result.get("tagCreate")
 
-    def gql_movieCreate(self, file_data, studio_id, folder_data):
+    def gql_groupCreate(self, file_data, studio_id, folder_data):
         query = """
-        mutation movieCreate($input: MovieCreateInput!) {
-            movieCreate(input: $input) {
+        mutation groupCreate($input: GroupCreateInput!) {
+            groupCreate(input: $input) {
                 id
             }
         }
@@ -484,14 +403,13 @@ class StashInterface:
                 "director": (file_data["director"] or None) if "director" not in bl else None,
                 "synopsis": (folder_data.get("details") or None) if "details" not in bl else None,
                 "rating100": (folder_data.get("rating") or None) if "rating" not in bl else None,
-                # Take 1st folder NFO URL for movie
-                "url": (folder_data.get("urls")[0] or None) if "urls" not in bl else None,
+                "urls": (folder_data.get("urls") or []) if "urls" not in bl else None,
                 "front_image": folder_data.get("cover_image") if "cover_image" not in bl else None,
                 "back_image": folder_data.get("other_image") if "cover_image" not in bl else None,
             }
         }
         result = self.__gql_call(query, variables)
-        return result.get("movieCreate")
+        return result.get("groupCreate")
 
     def gql_performersByIDs(self, ids):
         ids = sorted(set(str(pid) for pid in ids))
@@ -526,89 +444,33 @@ class StashInterface:
                 performer['alias_list'] = [a['alias'] for a in performer.pop('aliases')]
         return self._performers
 
-    def gql_findStudios(self, name):
-        query = """
-        query findStudios($studio_filter: StudioFilterType, $filter: FindFilterType) {
-            findStudios(studio_filter: $studio_filter, filter: $filter) {
-                studios {
-                    id
-                    name
-                    aliases
-                }
-            }
-        }
+    def _find_named(self, entity, name, aliases=False, match_aliases=False):
+        plural = {"Studio": "studios", "Group": "groups", "Tag": "tags"}[entity]
+        extra = " aliases" if aliases else ""
+        query = f"""
+        query Find{plural.title()}($ast: FilterASTInput, $filter: FindFilterType) {{
+            find{plural.title()}({entity.lower()}_filter_ast: $ast, filter: $filter) {{
+                {plural} {{ id name{extra} }}
+            }}
+        }}
         """
-        variables = {
-            "studio_filter": {
-                "name": {
-                    "value": name,
-                    "modifier": "INCLUDES"
-                },
-                "OR": {
-                    "aliases": {
-                        "value": name,
-                        "modifier": "INCLUDES"
-                    }
-                }
-            },
-            "filter": {
-                "per_page": -1
-            },
-        }
+        root = None
+        if name:
+            root = self._condition("name", name, "INCLUDES")
+            if match_aliases:
+                root = {"group": {"operator": "OR", "children": [root, self._condition("aliases", name, "INCLUDES")]}}
+        variables = {"ast": {"root": root} if root else None, "filter": {"per_page": -1}}
         result = self.__gql_call(query, variables)
-        return result.get("findStudios")
+        return result.get("find" + plural.title())
 
-    def gql_findMovies(self, name):
-        query = """
-        query findMovies($movie_filter: MovieFilterType, $filter: FindFilterType) {
-            findMovies(movie_filter: $movie_filter, filter: $filter) {
-                movies {
-                    id
-                    name
-                }
-            }
-        }
-        """
-        variables = {
-            "studio_filter": {
-                "name": {
-                    "value": name,
-                    "modifier": "INCLUDES"
-                }
-            },
-            "filter": {
-                "per_page": -1
-            },
-        }
-        result = self.__gql_call(query, variables)
-        return result.get("findMovies")
+    def gql_findStudios(self, name):
+        return self._find_named("Studio", name, aliases=True, match_aliases=True)
+
+    def gql_findGroups(self, name):
+        return self._find_named("Group", name)
 
     def gql_findTags(self, name=None):
-        query = """
-        query findTags($tag_filter: TagFilterType, $filter: FindFilterType) {
-            findTags(tag_filter: $tag_filter, filter: $filter) {
-                tags {
-                    id
-                    name
-                    aliases
-                }
-            }
-        }
-        """
-        variables = {
-            "filter": {
-                "per_page": -1
-            },
-        }
-        if name:
-            variables["tag_filter"] =  {
-                "name": {
-                    "value": name,
-                    "modifier": "INCLUDES"
-                }
-            }
-        result = self.__gql_call(query, variables)
-        return result.get("findTags")
+        return self._find_named("Tag", name, aliases=True)
 
     def exit_plugin(self, msg=None, err=None):
         if not msg and not err:

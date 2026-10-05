@@ -29,7 +29,7 @@ class TitleFallbackTests(unittest.TestCase):
         path = path or self.path
         self.item = {'id': '42', 'title': title, 'details': 'Existing details', 'organized': organized,
                      'files': [{'path': str(path)}], 'visual_files': [{'path': str(path)}],
-                     'tags': [], 'performers': [], 'movies': [], 'urls': []}
+                     'tags': [], 'performers': [], 'groups': [], 'urls': []}
         self.updates = []
         interface = StashInterface({'server_connection': {'PluginDir': str(Path(__file__).resolve().parents[1])},
                                     'args': {'mode': mode, 'hookContext': {'type': kind.capitalize() + '.Create.Post', 'id': '42'}}})
@@ -98,6 +98,14 @@ class TitleFallbackTests(unittest.TestCase):
                 plugin = self.make_plugin(kind, title='Previous title', **{kind + '_import_mappings': mappings})
                 plugin.process()
                 self.assertEqual(self.updates[0]['title'], expected)
+
+    def test_catalog_refresh_retains_existing_native_group(self):
+        self.capture()
+        plugin = self.make_plugin()
+        self.item['groups'] = [{'group': {'id': '9', 'name': 'Existing group'}, 'scene_index': 3}]
+        plugin.process()
+        self.assertEqual(self.updates[0]['groups'], [{'group_id': '9', 'scene_index': 3}])
+        self.assertNotIn('movies', self.updates[0])
 
     def test_preserved_xml_without_title_does_not_displace_existing_title(self):
         nfo = self.path.with_suffix('.nfo')

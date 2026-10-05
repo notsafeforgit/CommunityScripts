@@ -33,6 +33,10 @@ no v2.5 plugin API or UI compatibility requirement. Upgrade Stash before install
 this version: older Stash builds reject the versioned manifest.
 Version 1.14 requires `scrape-catalog` 0.5.0 or later for shared post metadata and
 catalog-owned performer UUIDs. Its `ui.entry` provides Catalog review through the shared v3 UI host.
+Version 1.15 uses native entity filter expressions and group endpoints. Stage it
+with the native Stash release; the compatible production installation remains
+on its existing package until cutover. Catalog `movie` metadata maps to a Stash
+group. An empty tagged-image lookup no longer retries against the whole library.
 No Python jq package or jq executable is needed at runtime.
 
 Enable **Catalog Metadata**. When replacing the legacy integration, disable
